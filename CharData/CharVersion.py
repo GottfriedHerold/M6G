@@ -15,21 +15,26 @@ We take the first match we find and return an arbitrary python object.
 
 from datetime import datetime, timezone
 from collections import UserDict
-
+from . import Regexps
 
 # CORE_RULES: str = "core rules"
 
 class CharVersion:
     # TODO: add arguments
-    def __init__(self, *, creation_time=None, description: str = "", initial_lists: list=[]):
+    def __init__(self, *, creation_time=None, description: str = "", initial_lists: list = []):
         if creation_time is None:
             creation_time: datetime = datetime.now(timezone.utc)
         # TODO : Warn if user-provided creation_time is not TZ-aware (this leads to issues with Django)
         self.creation_time = creation_time
         self.last_modified = creation_time
         self.description = description
-        self.initial_lists = initial_lists
+        self.lists = initial_lists
         return
+
+    def locate(self, key: str):
+        assert Regexps.re_key_any.fullmatch(key)  # Check at call site. TODO: Verify this! (Otherwise, raise Exception)
+        
+
 
 
 class DataSetTypes:

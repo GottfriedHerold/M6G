@@ -14,7 +14,7 @@ class CGEvalException(CharGenException):
 class DataError:
     """
     Used to indicate that a database entry is faulty.
-    Reason is the reason, exception is an exception that caused it (if present)
+    Reason is the reason, exception is possibly an exception that caused it (if present)
     """
     def __init__(self, reason: str = "", exception=None):
         self.exception = exception

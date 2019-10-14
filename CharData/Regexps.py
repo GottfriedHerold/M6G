@@ -12,6 +12,6 @@ import re
 #M.group('tail') == ".c" is what follows the last such constituent (note that this is empty or begins with ".")
 #M.group('head') is everything up to tail (exclusive).
 # See test_regexps.py for examples
-re_key_regular = re.compile(r"(?:(?!__)[a-zA-Z_]+(?<!__))(?:\.(?!__)[a-zA-Z_]+(?<!__))*")
-re_key_any = re.compile(r"[a-zA-Z_]+(?:\.[a-zA-Z_]+)*")
-re_key_restrict = re.compile(r"(?P<head>(?:[a-zA-Z_]+\.)*(?P<restrict>(?:__[a-zA-Z_]+)|(?:[a-zA-Z_]+__)))(?P<tail>(?:\.(?!__)[a-zA-Z_]+(?<!__))*)")
+re_key_regular = re.compile(r"(?:(?!__)[a-z_]+(?<!__))(?:\.(?!__)[a-z_]+(?<!__))*")
+re_key_any = re.compile(r"[a-z_]+(?:\.[a-z_]+)*")
+re_key_restrict = re.compile(r"(?P<head>(?:[a-z_]+\.)*(?P<restrict>(?:__[a-z_]+)|(?:[a-z_]+__)))(?P<tail>(?:\.(?!__)[a-z_]+(?<!__))*)")

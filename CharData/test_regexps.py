@@ -1,7 +1,7 @@
-from .Regexps import re_key_regular, re_key_any, re_key_restrict
+from . import Regexps
 
 def test_re_key_regular():
-    re_key = re_key_regular
+    re_key = Regexps.re_key_regular
     assert re_key.fullmatch("a_b_c")
     assert re_key.fullmatch("") is None
     assert not re_key.fullmatch(".a")
@@ -14,11 +14,11 @@ def test_re_key_regular():
     assert not re_key.fullmatch("a.b__")
     assert re_key.fullmatch("a__b._c__d_")
     assert not re_key.fullmatch("_a_.._b_")
-    assert re_key.fullmatch("AaZz_.AaZzCc_")
+    assert not re_key.fullmatch("AaZz_.AaZzCc_")
     assert not re_key.fullmatch("a;b")
 
 def test_re_key_any():
-    re_key = re_key_any
+    re_key = Regexps.re_key_any
     assert re_key.fullmatch("a_b_c")
     assert re_key.fullmatch("") is None
     assert not re_key.fullmatch(".a")
@@ -31,11 +31,11 @@ def test_re_key_any():
     assert re_key.fullmatch("a.b__")
     assert re_key.fullmatch("a__b._c__d_")
     assert not re_key.fullmatch("_a_.._b_")
-    assert re_key.fullmatch("AaZz_.AaZzCc_")
+    assert not re_key.fullmatch("AaZz_.AaZzCc_")
     assert not re_key.fullmatch("a;b")
 
 def test_re_key_restrict():
-    re_key = re_key_restrict
+    re_key = Regexps.re_key_restrict
     assert not re_key.fullmatch("a_b_c")
     assert re_key.fullmatch("") is None
     assert not re_key.fullmatch(".a")
@@ -49,6 +49,7 @@ def test_re_key_restrict():
     assert not re_key.fullmatch("a__b._c__d_")
     assert not re_key.fullmatch("_a_.._b_")
     assert not re_key.fullmatch("AaZz_.AaZzCc_")
+    assert not re_key.fullmatch("__A__")
     assert not re_key.fullmatch("a;b")
     assert re_key.fullmatch("__a__")
     assert re_key.fullmatch("__a__.__b__.__c__")

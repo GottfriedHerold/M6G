@@ -1,0 +1,4 @@
+Dependencies:
+ply
+Django
+pytest
