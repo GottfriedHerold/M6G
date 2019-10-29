@@ -16,25 +16,142 @@ We take the first match we find and return an arbitrary python object.
 from datetime import datetime, timezone
 from collections import UserDict
 from . import Regexps
+from . import Parser
+from . import CharExceptions
 
-# CORE_RULES: str = "core rules"
+
+_ALL_SUFFIX = "_all"
+
+def input_string_to_value(input_string: str):
+    if len(input_string) == 0:
+        return None
+    # "STRING or "STRING" or 'STRING or 'STRING' all parse as strings
+    if input_string[0] == '"' or input_string[0] == "'":
+        if input_string[-1] == input_string[0]:
+            return input_string[1:-1]
+        else:
+            return input_string[1:]
+    elif input_string[0] == '=':
+        try:
+            result = Parser.parser.parse(input_string[1:])
+        except Exception as e:
+            result = CharExceptions.DataError(e)
+        return result
+    elif Regexps.re_number_int.fullmatch(input_string):
+        return int(input_string)
+    elif Regexps.re_number_float.fullmatch(input_string):
+        return float(input_string)
+    else:
+        return input_string
 
 class CharVersion:
     # TODO: add arguments
     def __init__(self, *, creation_time=None, description: str = "", initial_lists: list = []):
         if creation_time is None:
             creation_time: datetime = datetime.now(timezone.utc)
-        # TODO : Warn if user-provided creation_time is not TZ-aware (this leads to issues with Django)
+        # TODO : Warn if user-provided creation_time is not TZ-aware (this may lead to issues with Django)
         self.creation_time = creation_time
         self.last_modified = creation_time
         self.description = description
         self.lists = initial_lists
         return
 
-    def locate(self, key: str):
-        assert Regexps.re_key_any.fullmatch(key)  # Check at call site. TODO: Verify this! (Otherwise, raise Exception)
+    def get(self, key, *, loc_fun = False):
+        if loc_fun:
+            located_key, where = self.locate_fun(key)
+        else:
+            assert Regexps.re_key_any.fullmatch(key)
+            if Regexps.re_key_restrict.fullmatch(key):
+                located_key, where = self.locate_restricted(key, restrict = Regexps.re_key_restrict.fullmatch(key))
+        if where is None:
+            return CharExceptions.DataError(key + " not found")
+        ret = self.lists[where][located_key]
+        if is_instance(ret, Parser.AST):
+            context = {'Name' : located_key}
+            try:
+                ret = ret.eval_ast(self, context)
+            except Exception as e:
+                ret = CharExceptions.DataError("Error evaluating " + key, e)
+        return ret
+            
         
 
+    def locate(self, key: str, *, startafter = None, restrict = False):
+        # Check at call site. TODO: Verify this! (Otherwise, raise Exception)
+        if restrict:
+            assert Regexps.re_key_restrict.fullmatch(key)
+        else:
+            assert Regexps.re_key_regular.fullmatch(key)
+        L = len(self.lists)
+        # L = 3  #  for debug
+        split_key = key.split('.')
+        keylen = len(split_key)
+        main_key = split_key[keylen-1]
+        
+
+        # This is really 2 for-loops, but we need to be able to start in the middle of an inner loops.
+        # So it becomes easier to write it as a single while-loop
+        
+        if startafter:
+            j = startafter[1]
+            current = startafter[0].split('.')
+            search_key = startafter[0]
+            i = len(current) - 1
+            postfix = current[-1]
+        else:
+            i = keylen # length of prefix to take
+            j = L-1 #
+            postfix = _ALL_SUFFIX
+        while True:
+            j+=1
+            if j == L:
+                j = 0
+                if postfix == _ALL_SUFFIX: # comparison with == rather than is (because main_key == ALL_SUFFIX is possible)
+                    postfix = main_key
+                    i-=1
+                    if i == -1:
+                        return None, None
+                else:
+                    postfix = _ALL_SUFFIX
+                search_key = ".".join(split_key[0:i] + [postfix])
+                if restrict and Regexps.re_key_regular.fullmatch(search_key):
+                    j = L - 1
+                    continue
+            # print (search_key, j)
+            if search_key in self.lists[j]:
+                return search_key, j
+        
+        
+
+        
+        #for i in range(keylen-1, -1,-1):
+        #    prefix = ".".join(split_key[0:i])
+        #    search_key = prefix + "." + main_key
+        #    for j in range(L):
+        #    #   print(search_key, j) -- debug
+        #        if search_key in self.lists[j]:
+        #            return search_key, j
+        #    search_key = prefix + "._all"
+        #    for j in range(L):
+        #    #   print(search_key, j)  -- debug
+        #        if search_key in self.lists[j]:
+        #            return search_key, j
+        #return None, None
+
+    
+    def locate_function(self, key: str):
+        main_key = key.lower()
+        L = len(self.lists)
+        search_key = "__fun__" + main_key
+        for j in range(L):
+            if search_key in self.lists[j]:
+                return search_key, j
+        search_key = "_fun" + main_key
+        for j in range(L):
+            if search_key in self.lists[j]:
+                return search_key ,j
+        return None, None
+            
 
 
 class DataSetTypes:
@@ -51,9 +168,26 @@ class DataSetTypes:
 
 class UserDataSet(UserDict):
     dict_type = DataSetTypes.USER_INPUT
-    def __init__(self, description: str = ""):
+    def __init__(self, *, description: str = ""):
         super().__init__()  # empty dict
         self.description = description
+        self.input_data = {}
+
+    def set_from_string(self, key, value):
+        # check at call site
+        assert Regexps.re_key_regular.fullmatch(key)
+        if len(value) == 0:
+            del self.input_data[key]
+            del self[key]
+            return
+        self.input_data[key] = value
+        self[key] = input_string_to_value(value)
+
+    def get_input(self, key):
+        return self.input_data.get(key, None)
+
+        
+        
 
 class CoreRuleDataSet(UserDict):
     dict_type = DataSetTypes.CORE_RULES
@@ -62,3 +196,13 @@ class CoreRuleDataSet(UserDict):
         self.description = desciption
         assert isinstance(startdict, dict)
         self.data = startdict
+
+    def set_from_string(self, key, value):
+        assert Regexps.re_key_any.fullmatch(key)
+        if len(value) == 0:
+            del self[key]
+        else:
+            self[key] = input_string_to_value(value)
+
+    def get_input(self, key):
+        return None

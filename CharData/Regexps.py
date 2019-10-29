@@ -15,3 +15,11 @@ import re
 re_key_regular = re.compile(r"(?:(?!__)[a-z_]+(?<!__))(?:\.(?!__)[a-z_]+(?<!__))*")
 re_key_any = re.compile(r"[a-z_]+(?:\.[a-z_]+)*")
 re_key_restrict = re.compile(r"(?P<head>(?:[a-z_]+\.)*(?P<restrict>(?:__[a-z_]+)|(?:[a-z_]+__)))(?P<tail>(?:\.(?!__)[a-z_]+(?<!__))*)")
+
+# 
+re_number_int = re.compile(r"[0-9]+")
+re_number_float = re.compile(r"[0-9]+[.][0-9]+")
+
+re_argname = re.compile(r"[$][a-z_]+")
+re_special_arg = re.compile(r"[$][A-Z][a-zA-Z_]*")
+re_funcname = re.compile(r"[A-Z]+")

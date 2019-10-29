@@ -2,8 +2,8 @@ import ply.lex as lex
 import ply.yacc as yacc
 from ply.lex import TOKEN
 # list of tokens (excluding literals):
-from .Regexps import re_key_any
-from .CharExceptions import DataError
+from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
+from .CharExceptions import DataError, CGParseException
 
 keywords = [
     'COND',
@@ -11,32 +11,43 @@ keywords = [
     'AND',
     'NOT',
     'FUN',  # alternative: LAMBDA is also recognized
+    'TRUE',
+    'FALSE',
 ]
 
 # $Name tokens, where Name starts with a capital letter will be recognized iff(!) Name.upper() is in this dict.
 # Right-Hand sides need to be in tokens
 special_args = {
-    'A': 'AUTO',  # $AUTO evaluates to whatever it would, if the AST was empty
-    'AUTO': 'AUTO',
-    'Q': 'QUERY',  # $QUERY is the query string, usually equals to $NAME. Its presence needs special treatment.
-    'QUERY': 'QUERY',
-    'NAME': 'ARGNAME',  # This acts as a normal argument!
+    # keys are what is recognized as $Key (after uppercasing, so keys need to be capitalized here).
+    # values are pairs (TOKEN, Var) to mean that this gets parsed as TOKEN.
+    # We also indicate to the user that $Var is required and needs to be supplied by the (external) caller if not None
+    # If TOKEN == 'ARGNAME', Var is also the name of the variable. Var should start with a capital letter.
+    'A': ('AUTO', None),  # $AUTO evaluates to whatever it would, if the AST was empty and it was queried directly.
+    'AUTO': ('AUTO', None),
+    'Q': ('ARGNAME','Query'),  # $QUERY is the query string, usually equals to $NAME. Its presence needs special treatment.
+    'AQ': ('AUTOQUERY', 'Query'), # $AUTOQUERY evaluates to whatever it would if the AST was empty and it was queried as $QUERY
+    'AUTOQUERY': ('AUTOQUERY', 'Query'),
+    'QUERY': ('ARGNAME', 'Query'),
+    'NAME': ('ARGNAME', 'Name'),  # $Name is set by the caller. It does not actually need special treatment here (apart from beginning  with a capital)
 }
 
 tokens = [
-    'STRING',
-    'IDIV',
-    'INT',
-    'FLOAT',
-    'FUNCNAME',
-    'NAME',
-    'EQUALS',
-    'NEQUALS',
-    'LTE',
-    'GTE',
-    'ARGNAME',
-    'AUTO',
-    'QUERY',
+    'STRING',   # Quote - enclosed string
+    'IDIV',     # // (integral division, as opposed to /, which gives floats)
+    'INT',      # Integer
+    'FLOAT',    # Floats
+    'FUNCNAME', # FUNCTION (all - caps)
+    'NAME',     # attr.strength
+    'EQUALS',   # == (equality comparison)
+    'NEQUALS',  # != (inequality comparison)
+    'LTE',      # <=
+    'GTE',      # >=
+    'ARGNAME',  # $argument
+    'AUTO',     # $A[uto] - gets default value
+    # 'QUERY',    # $Q[uery] - query string
+    'AUTOQUERY', # $AUTOQUERY - gets default value for original query string
+    'NEEDSENV',  # fictious token that gets generated at the end by the lexer and contains information on whether certain special tokens appear.
+                 # A final parser rule expression :== expression NEEDSENV then collects this and passes this on to the caller.
 ] + keywords
 literals = "+-*/%()[],<>="
 
@@ -44,55 +55,113 @@ literals = "+-*/%()[],<>="
 # Function defs come first (in order of definition), then t_TOKEN = regexp defs (in order of decreasing length of regexp)
 # then literals
 
+
 def t_STRING(token):
     r"(?:'[^']*')|" r'(?:"[^"]*")'  # Allow either ' or " as delimeters (Python-like)
     token.value = token.value[1:-1]  #strip the quotation marks already by the lexer
     return token
 
+@TOKEN(re_number_float.pattern)
 def t_FLOAT(token):
-    r"[0-9]+[.][0-9]+"
     token.value = float(token.value)
     return token
 
 # This must come after t_FLOAT
+@TOKEN(re_number_int.pattern)
 def t_INT(token):
-    r"[0-9]+"
     token.value = int(token.value)
     return token
 
-def t_ARGNAME(token):
-    r"[$][a-z_]+"
-    token.value = token.value[1:]
-    return token
-
-def t_SPECIALARGS(token):
-    r"[$][A-Z][a-zA-Z_]*"
-    token.value = token.value[1:].upper()
-    if token.value in special_args:
-        token.type = special_args[token.value]
-        token.value = token.type
+# This is a single rule for
+# -Keywords OR AND NOT etc
+# -Functions FUNC
+# Special References $Name etc.
+# local variables $name
+# references to other data fields .attr.strength
+# This is included in a single t_WORD in order to ensure that strings such as Ab do not parse as separate tokens A b
+# This way we get an error instead
+def t_WORD(token):
+    r"[$]?[a-z._A-Z]+"
+    if re_special_arg.fullmatch(token.value):  # r"[$][A-Z][a-zA-Z_]*"
+        token.value = token.value[1:].upper() # strip leading $ and uppercase string -- We know that first non-$ is uppercase anyway
+        if token.value in special_args:
+            spec = special_args[token.value]
+            token.type = spec[0]
+            token.value = spec[1]
+            if spec[1] is not None:
+                token.lexer.needs_env |= {spec[1]}
+            return token
+        else:
+            token.lexer.needs_env = set()
+            raise SyntaxError("Invalid argument name $" + token.value)
+    elif re_argname.fullmatch(token.value):  #  r"[$][a-z_]+"
+        token.type = 'ARGNAME'
+        token.value = token.value[1:] # strip leading $
+        return token
+    elif re_funcname.fullmatch(token.value):  #  "[A-Z]+"  -- No underscores for now
+        token.type = 'FUNCNAME'
+        if token.value in keywords:
+            token.type = token.value
+        if token.value == 'LAMBDA':
+            token.type = 'FUN'
+        return token
+    elif re_key_any.fullmatch(token.value):
+        token.type = 'NAME'
         return token
     else:
-        raise SyntaxError("Invalid argument name $" + token.value)
+        token.lexer.needs_env = set()
+        raise SyntaxError("Did not recognize String " + token.value)
 
-# keywords and the like
-def t_FUNCNAME(token):
-    r"[A-Z]+"  # No underscores for now
-    if token.value in keywords:
-        token.type = token.value
-    if token.value == 'LAMBDA':
-        token.type = 'FUN'
-    return token
 
-def t_BLAH(token):
-    r"[#]"
-    token.type = 'INT'
-    return token
+# def t_ARGNAME(token):
+#     r"[$][a-z_]+"
+#     token.value = token.value[1:]
+#     return token
+#
+# def t_SPECIALARGS(token):
+#     r"[$][A-Z][a-zA-Z_]*"
+#     token.value = token.value[1:].upper()
+#     if token.value in special_args:
+#         spec = special_args[token.value]
+#         token.type = spec[0]
+#         token.value = spec[1]
+#         if spec[1] is not None:
+#             token.lexer.needs_env |= {spec[1]}
+#         return token
+#     else:
+#         token.lexer.needs_env = set()
+#         raise SyntaxError("Invalid argument name $" + token.value)
+
+def t_eof(token):
+    if token.lexer.needs_env != set():
+        r = lex.LexToken()
+        r.type = 'NEEDSENV'
+        r.value = token.lexer.needs_env
+        token.lexer.needs_env = set()
+        r.lineno = 0
+        r.lexpos = 0
+        return r
+    else:
+        return None
+
+def t_error(token):
+    token.lexer.needs_env = set()
+    token.lexer.input("")
+    raise SyntaxError("Could not parse formula")
+
+# # keywords and the like
+# def t_FUNCNAME(token):
+#     r"[A-Z]+"  # No underscores for now
+#     if token.value in keywords:
+#         token.type = token.value
+#     if token.value == 'LAMBDA':
+#         token.type = 'FUN'
+#     return token
 
 # reference to other data field
-@TOKEN(re_key_any.pattern)
-def t_NAME(token):
-    return token
+# @TOKEN(re_key_any.pattern)
+# def t_NAME(token):
+#     return token
 
 t_ignore = ' \t\n\r\f\v'  # ignore (ASCII) whitespace
 
@@ -103,21 +172,43 @@ t_LTE = r"<="
 t_GTE = r">="
 
 lexer = lex.lex()
+lexer.needs_env = set()
+
+# We parse the input string into an abstract syntax tree object.
+# (non-leaf nodes correspond to operations, children to operands, leafs to literals)
+# This is an instance of a class (derived from) AST, whose
+# actual derived class determines the type of object.
+# (e.g. AST_Sum for an addition, AST_Mult for a multiplication)
+# t's children are stored in t.child[0], ...
+# The classvariable typedesc is a string denoting the type of operation.
+# It is only used for printing (which in turn is only for debugging)
+# AST.eval_ast(instance, data_list, context)
+# ASTs are the result from parsing the input string.
+# NOTE: The result of parsing is purely a function of the input string. There is no dependency on
+# other data sources for the references etc. These dependencies only come into play when actually evaluating.
+
+# To actually evaluate the AST, use instance.eval_ast(data_list, context)
+# data_list is the list of data sources, used to evaluate references.
+# context is a dict for variables $arg = value that may appear. External caller should only set $Name
+# (context is mostly used internally to implement lambdas INSIDE ASTs)
+
 
 class AST:
-    typedesc = 'Parent'
+    typedesc = 'AST'  # should never be used
+    needs_env = frozenset()
     def __init__(self, *kw):
         self.child = kw
     def __str__(self):
         return self.typedesc + '[' + ", ".join([str(x) for x in self.child]) + ']'
 
+
 class AST_BinOp(AST):
     typedesc = 'Binary Op'
-    def eval_ast(self, list, context):
-        left = self.child[0].eval_ast(list, context)
+    def eval_ast(self, data_list, context):
+        left = self.child[0].eval_ast(data_list, context)
         if isinstance(left, DataError):
             return left
-        right = self.child[1].eval_ast(list, context)
+        right = self.child[1].eval_ast(data_list, context)
         if isinstance(right, DataError):
             return right
         return self.eval_fun(left, right)
@@ -196,120 +287,150 @@ class AST_LT(AST_BinOp):
 
 class AST_And(AST):  # Not BinOp!
     typedesc = 'AND'
-    def eval_ast(self, list, context):
-        left = self.child[0].eval_ast(list, context)
+    def eval_ast(self, data_list, context):
+        left = self.child[0].eval_ast(data_list, context)
         if (not left) or isinstance(left, DataError):
             return left
-        return self.child[1].eval_ast(list, context)
+        return self.child[1].eval_ast(data_list, context)
 
 class AST_Or(AST):  # Not BinOp!
     typedesc = 'OR'
-    def eval_ast(self, list, context):
-        left = self.child[0].eval_ast(list, context)
+    def eval_ast(self, data_list, context):
+        left = self.child[0].eval_ast(data_list, context)
         if left:
             return left
-        return self.child[1].eval_ast(list, context)
+        return self.child[1].eval_ast(data_list, context)
+
+class AST_Not(AST):
+    typedesc = 'NOT'
+    def eval_ast(self, data_list, context):
+        arg = self.child[0].eval_ast(data_list, context)
+        if isinstance(arg, DataError):
+            return arg
+        return not arg
 
 class AST_Cond(AST):
     typedesc = 'COND'
-    def eval_ast(self, list, context):
-        cond = self.child[0].eval_ast(list, context)
+    def eval_ast(self, data_list, context):
+        cond = self.child[0].eval_ast(data_list, context)
         if isinstance(cond, DataError):
             return cond
         if cond:
-            return self.child[1].eval_ast(list, context)
+            return self.child[1].eval_ast(data_list, context)
         else:
-            return self.child[2].eval_ast(list, context)
+            return self.child[2].eval_ast(data_list, context)
 
 class AST_Literal(AST):
     typedesc = 'Literal'
-    def eval_ast(self, list, context):
+    def eval_ast(self, data_list, context):
         return self.child[0]
 
 class AST_Name(AST):
     typedesc = 'Reference'
-    def eval_ast(self, list, context):
+    def eval_ast(self, data_list, context):
         assert False
 
 class AST_Funcname(AST):
     typedesc = 'Function Name'
-    def eval_ast(self, list, context):
+    def eval_ast(self, data_list, context):
+        # TODO: Change? This is only here to simplify debugging
         if self.child[0] == 'LIST':
             return lambda *kw: [*kw]
         if self.child[0] == 'DICT':
             return dict
-        if self.child[0] == 'SORTED':
-            return sorted
         assert False
-
 
 class AST_Argname(AST):
     typedesc = 'Argument'
-    def eval_ast(self, list, context):
+    def eval_ast(self, data_list, context):
         return context[self.child[0]]
 
 class AST_Auto(AST):
     typedesc = 'Auto'
-    def eval_ast(self, list, context):
+    def eval_ast(self, data_list, context):
         assert False
 
 class AST_FunctionCall(AST):
     typedesc = 'Call'
-    def eval_ast(self, list, context):
-        fun = self.child[0].eval_ast(list, context)
+    def eval_ast(self, data_list, context):
+        fun = self.child[0].eval_ast(data_list, context)
         if isinstance(fun, DataError):
             return fun
         posargs = []
         kwargs = {}
         for arg in self.child[1:]:
-            a = arg.eval_ast(list, context)
+            a = arg.eval_ast(data_list, context)
             if isinstance(a, DataError):
                 return a
-            if arg.argtype == 0:
+            if arg.argtype is _FUNARG_EXP:
                 posargs.append(a)
-            elif arg.argtype == 1:
-                posargs.append(*a)
-            elif arg.argtype == 2:
+            elif arg.argtype is _FUNARG_STAREXP:
+                posargs+=a
+            elif arg.argtype is _FUNARG_STARSTAREXP:
                 kwargs.update(**a)
             else:
-                assert arg.argtype == 3
+                assert arg.argtype is _FUNARG_NAMEVAL
                 kwargs[arg.namebind] = a
         return fun(*posargs, **kwargs)
 
+# Lambdas
 class AST_Lambda(AST):
     typedesc = 'Lambda'
-    def eval_ast(self, list, context):
+    def eval_ast(self, data_list, context : dict):
         # self.child[0] is a list of pairs (name, type) or triples (name, type, defaultarg) for the variable names:
         # name is a string denoting the actual name (or None for *)
-        # type is a string in {'Arg', 'DefArg', 'EndPosArg', 'RestPosArg', 'RestKwArg'} to differentiate
+        # type is a string constant set to _ARGTYPE_* to differentiate
         # name, name = default, *, *name and **name
         # self.child[1] is an AST for the actual function body.
-        # As opposed to Python proper, it does not matter when we evaluate default arguments...
+        # As opposed to Python proper, it does not matter much when we evaluate default arguments, because we can't mutate anyway.
+        # We choose to evaluate at (each) call, if actually needed (which means that unused invalid default arguments do not trigger errors)
 
-        # Captures: list and context
-        givenargs = self.child[0]
+        # Captures: data_list and context
+        expectedargs = self.child[0]
+        # givenargs is a list of tuples ($name, $type [, default-value] ) of the arguments that the function expects
         body = self.child[1]
 
         def fun(*funargs, **kwargs):
-            new_context = {}
-            funargpos = 0
-            funarglen = len(funargs)
-            kwarg_used = False
-
-            for arg in givenargs:
-                if arg[1] == 'Arg' or arg[1] == 'DefArg':
+            new_context = context
+            funargpos = 0  # index of next funarg that has not yet been assigned to an expected argument
+            funarglen = len(funargs) # number of positional arguments that we actually got
+            kwargonly = False
+            for arg in expectedargs:
+                if arg[1] is _ARGTYPE_NORMAL or arg[1] is _ARGTYPE_DEFAULT:
                     if arg[0] in kwargs:
-                        new_context[arg[0]] = kwargs.pop[arg[0]]
-                        kwarg_used = True
+                        new_context[arg[0]] = kwargs.pop(arg[0])
+                        if funargpos != funarglen:
+                            raise AttributeError("keyword argument used before (expected or given) positional argument")
                     elif funargpos < funarglen:  # Still have arguments given to fun left
-
                         new_context[arg[0]] = funargs[funargpos]
                         funargpos+=1
-
-
-
-            pass
-
+                    elif arg[1] is _ARGTYPE_NORMAL:
+                        if kwargonly:
+                            raise AttributeError("Missing Keyword-only argument $" + arg[0])
+                        else:
+                            raise AttributeError("Missing positional argument $" + arg[0])
+                    else:
+                        defaultarg = arg[2].eval_ast(data_list, context)
+                        if isinstance(defaultarg, DataError):
+                            return defaultarg
+                        new_context[arg[0]] = defaultarg
+                elif arg[1] is _ARGTYPE_STAR:
+                    kwargonly = True
+                    if funargpos != funarglen:
+                        raise AttributeError("too many positional arguements")
+                elif arg[1] is _ARGTYPE_STARARG:  # guaranteed to be the last arg in expectedargs
+                    new_context[arg[0]] = funargs[funargpos:]
+                    funargpos = funarglen
+                    kwargonly = True
+                else:
+                    assert arg[1] is _ARGTYPE_KWARGS
+                    new_context[arg[0]] = kwargs
+                    kwargs = {}
+            if len(kwargs) > 0:
+                raise AttributeError("Unknown keyword argument $" + next(iter(kwargs.keys())))
+            if funargpos != funarglen:
+                raise AttributeError("Too many positional arguments")
+            return body.eval_ast(data_list, new_context)
         return fun
 
 class AST_GetItem(AST_BinOp):
@@ -320,13 +441,23 @@ class AST_GetItem(AST_BinOp):
 
 start = 'expression'
 precedence = (
+    ('nonassoc', 'NEEDSENV'),
     ('right', 'OR'),
     ('right', 'AND'),
     ('right', 'NOT'),
     ('nonassoc', 'LTE', 'GTE', '<', '>', 'EQUALS', 'NEQUALS'),
     ('left', '+', '-'),
-    ('left', '*', '/', '%', 'IDIV')
+    ('left', '*', '/', '%', 'IDIV'),
 )
+
+def p_error(p):
+    lexer.needs_env = set()
+    raise CGParseException
+
+def p_needsenv(p):
+    "expression : expression NEEDSENV"
+    p[0] = p[1]
+    p[0].needs_env = p[2]
 
 
 def p_expression_bracket(p):
@@ -337,6 +468,14 @@ def p_expression_literal(p):
                   | FLOAT
                   | INT"""
     p[0] = AST_Literal(p[1])
+
+def p_expression_true(p):
+    "expression : TRUE"
+    p[0] = AST_Literal(True)
+
+def p_expression_false(p):
+    "expression : FALSE"
+    p[0] = AST_Literal(False)
 
 def p_expression_sum(p):
     "expression : expression '+' expression"
@@ -394,6 +533,10 @@ def p_expression_or(p):
     "expression : expression OR expression"
     p[0] = AST_Or(p[1], p[3])
 
+def p_expression_not(p):
+    "expression : NOT expression"
+    p[0] = AST_Not(p[2])
+
 def p_expression_cond(p):
     "expression : COND '(' expression ',' expression ',' expression ')'"
     p[0] = AST_Cond(p[3], p[5], p[7])
@@ -414,6 +557,10 @@ def p_expression_auto(p):
     "expression : AUTO"
     p[0] = AST_Auto()
 
+def p_expression_autoquery(p):
+    "expression : AUTOQUERY"
+    assert False
+
 # p_argument turns an expression exp into a function argument, e.g. for use in f(exp)
 # To be consistent with Python, function arguments can be of the form
 # exp, *exp, **exp, $name=exp
@@ -423,31 +570,38 @@ def p_expression_auto(p):
 # should NOT naturally return the tuple 1, 2, since then for a function g(a,b) with
 # arguments, g(*exp) would bind a to the tuple (1,2) and leave b unbound...
 # In fact, *exp is not a valid Python expression in most contexts.
-# The unpacking and the function call have to be handled simultaneously and we just mark the arguments
-# the p[0].typedesc = ... assignment is just for debugging and printing.
+# The unpacking and the function call have to be handled simultaneously and we just mark the arguments.
+# the p[0].typedesc = ... assignments are just for debugging and printing.
 # Note that p[0].typedesc on the left-hand side is an instance variable, the right-hand side a class variable!
-# p[0].typedesc += "..." would actually work and create an instance variable
+# p[0].typedesc += "..." would actually work and create an instance variable because python is weird.
+
+# types of arguments appearing in function calls f(...)
+_FUNARG_EXP = 'expression'  # f(x)
+_FUNARG_STAREXP = '*expression'  # f(*list)
+_FUNARG_STARSTAREXP = '**expression'  # f(**dict)
+_FUNARG_NAMEVAL = 'named argument'  # f(name = x)
+
 def p_argument_exp(p):
     "argument : expression"
     p[0] = p[1]
-    p[0].argtype = 0
+    p[0].argtype = _FUNARG_EXP
 
 def p_argument_listexp(p):
     "argument : '*' expression"
     p[0] = p[2]
-    p[0].argtype = 1
+    p[0].argtype = _FUNARG_STAREXP
     p[0].typedesc = '*' + p[0].typedesc  # this creates an instance variable
-
+    
 def p_argument_dictexp(p):
     "argument : '*' '*' expression"
     p[0] = p[3]
-    p[0].argtype = 2
+    p[0].argtype = _FUNARG_STARSTAREXP
     p[0].typedesc = '**' + p[0].typedesc  # this creates an instance variable
 
 def p_argument_nameval(p):
     "argument : ARGNAME '=' expression"
     p[0] = p[3]
-    p[0].argtype = 3
+    p[0].argtype = _FUNARG_NAMEVAL
     p[0].namebind = p[1]
     p[0].typedesc = p[0].typedesc + ' bound to ' + p[0].namebind  # += actually would work (which I find strange)
 
@@ -469,13 +623,16 @@ def p_arglist_nonempty(p):
 
 def p_function_call(p):
     "expression : expression '(' arglist ')'"
-    p[0] = AST_FunctionCall(p[1], *p[3])
+    # keyword arguments must come after positional arguments :
     kwonly = False
     for arg in p[3]:
-        if arg.argtype == 2 or arg.argtype == 3:
+        if arg.argtype is _FUNARG_STARSTAREXP or arg.argtype is _FUNARG_NAMEVAL:
             kwonly = True
         elif kwonly:
-            raise SyntaxError("Positional arguments must not follow keyword arguments")
+            lexer.needs_env = set()
+            raise CGParseException("Positional arguments must not follow keyword arguments")
+    p[0] = AST_FunctionCall(p[1], *p[3])
+    
 
 
 
@@ -483,25 +640,31 @@ def p_getitem(p):
     "expression : expression '[' expression ']'"
     p[0] = AST_GetItem(p[1], p[3])
 
+_ARGTYPE_NORMAL = 'Arg'  # def f(x)
+_ARGTYPE_DEFAULT = 'Defaulted Argument'  # def f(x=5)
+_ARGTYPE_STAR = 'End of Positional Arguments'  # def f(*)
+_ARGTYPE_STARARG = 'Rest of Positional Arguments'  # def f(*arg)
+_ARGTYPE_KWARGS = 'Rest of Keyword Arguments'  # def (f**kwargs)
+
 def p_declarg_name(p):
     "declarg : ARGNAME"
-    p[0] = (p[1], 'Arg')
+    p[0] = (p[1], _ARGTYPE_NORMAL)
 
 def p_declarg_defaulted_name(p):
     "declarg : ARGNAME '=' expression"
-    p[0] = (p[1], 'DefArg', p[3])
+    p[0] = (p[1], _ARGTYPE_DEFAULT, p[3])
 
 def p_declarg_pos_end(p):
     "declarg : '*'"
-    p[0] = (None, 'EndPosArg')
+    p[0] = (None, _ARGTYPE_STAR)
 
 def p_declarg_pos_rest(p):
     "declarg : '*' ARGNAME"
-    p[0] = (p[2], 'RestPosArg')
+    p[0] = (p[2], _ARGTYPE_STARARG)
 
 def p_declarg_kw_rest(p):
     "declarg : '*' '*' ARGNAME"
-    p[0] = (p[3], 'RestKwArg')
+    p[0] = (p[3], _ARGTYPE_KWARGS)
 
 def p_declarg_list(p):
     """declarglist :
@@ -522,22 +685,24 @@ def p_declarglist_nonempty(p):
 def p_functiondef(p):
     "expression : FUN '[' declarglist ']' '(' expression ')'"
     args = p[3]
+    # Check validity of argument list : There are restrictions on the order of argument types (kw-arguments after positional arguments etc)
     seen_default = False
     seen_restkw = False
     seen_end = False
     for arg in args:
         if seen_end:
-            raise SyntaxError("Arguments after end of kwargs")
-        if arg[1] == 'Arg':  # normal argument $a
+            lexer.needs_env = set()
+            raise CGParseException("Arguments after end of kwargs")
+        if arg[1] is _ARGTYPE_NORMAL:  # normal argument $a
             if seen_default and not seen_restkw:
-                raise SyntaxError("positional arg after defaulted arg")
-        elif arg[1] == 'DefArg':  # defaulted argument $a = 1
+                raise CGParseException("positional arg after defaulted arg")
+        elif arg[1] is _ARGTYPE_DEFAULT:  # defaulted argument $a = 1
             seen_default = True
-        elif arg[1] == 'EndPosArg' or arg[1] == 'RestPosArg': # end of positional arguments * or *$a
+        elif (arg[1] is _ARGTYPE_STAR) or (arg[1] is _ARGTYPE_STARARG): # end of positional arguments * or *$a
             if seen_restkw:
-                raise SyntaxError("taking rest of positional arguments multiple times")
+                raise CGParseException("taking rest of positional arguments multiple times")
             seen_restkw = True
-        elif arg[1] == 'RestKwArg':  # **$kwargs must be last
+        elif arg[1] is _ARGTYPE_KWARGS:  # **$kwargs must be last
             seen_end = True
         else:
             assert False
@@ -546,5 +711,5 @@ def p_functiondef(p):
 parser = yacc.yacc()
 
 # for debugging.
-if __name__ == '__main__':
-    lex.runmain()
+# if __name__ == '__main__':
+#     lex.runmain()
