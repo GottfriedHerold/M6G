@@ -1,5 +1,5 @@
 """
-This module defines a class that is used to hold an access a (version of a) character's data.
+This module defines a class that is used to hold and access a (version of a) character's data.
 Note that characters are versioned in a simple (non-branching) fashion.
 The main data that is used to hold the character is a list S = [S0,S1,S2,...] of dict-like objects.
 Its keys are PATHS of the form e.g. 'att.st', 'abil.zauberkunde.gfp_spent' (all lowercase, separated by dots)
@@ -35,7 +35,7 @@ def input_string_to_value(input_string: str):
         try:
             result = Parser.parser.parse(input_string[1:])
         except Exception as e:
-            result = CharExceptions.DataError(e)
+            result = CharExceptions.DataError(exception=e)
         return result
     elif Regexps.re_number_int.fullmatch(input_string):
         return int(input_string)
@@ -46,32 +46,35 @@ def input_string_to_value(input_string: str):
 
 class CharVersion:
     # TODO: add arguments
-    def __init__(self, *, creation_time=None, description: str = "", initial_lists: list = []):
+    def __init__(self, *, creation_time=None, description: str = "", initial_lists: list = None):
         if creation_time is None:
             creation_time: datetime = datetime.now(timezone.utc)
         # TODO : Warn if user-provided creation_time is not TZ-aware (this may lead to issues with Django)
         self.creation_time = creation_time
         self.last_modified = creation_time
         self.description = description
-        self.lists = initial_lists
+        if initial_lists is None:
+            self.lists = []
+        else:
+            self.lists = initial_lists
         return
 
-    def get(self, key, *, loc_fun = False):
+    def get(self, key, *, loc_fun: bool = False):
         if loc_fun:
-            located_key, where = self.locate_fun(key)
+            located_key, where = self.locate_function(key)  # TODO
         else:
             assert Regexps.re_key_any.fullmatch(key)
             if Regexps.re_key_restrict.fullmatch(key):
-                located_key, where = self.locate_restricted(key, restrict = Regexps.re_key_restrict.fullmatch(key))
+                located_key, where = self.locate_restricted(key, restrict=Regexps.re_key_restrict.fullmatch(key))
         if where is None:
             return CharExceptions.DataError(key + " not found")
         ret = self.lists[where][located_key]
-        if is_instance(ret, Parser.AST):
-            context = {'Name' : located_key}
+        if isinstance(ret, Parser.AST):
+            context = {'Name': located_key}
             try:
                 ret = ret.eval_ast(self, context)
             except Exception as e:
-                ret = CharExceptions.DataError("Error evaluating " + key, e)
+                ret = CharExceptions.DataError("Error evaluating " + key, exception=e)
         return ret
             
         
@@ -106,7 +109,7 @@ class CharVersion:
             j+=1
             if j == L:
                 j = 0
-                if postfix == _ALL_SUFFIX: # comparison with == rather than is (because main_key == ALL_SUFFIX is possible)
+                if postfix == _ALL_SUFFIX:  # comparison with == rather than is (because main_key == ALL_SUFFIX is possible)
                     postfix = main_key
                     i-=1
                     if i == -1:
@@ -149,7 +152,7 @@ class CharVersion:
         search_key = "_fun" + main_key
         for j in range(L):
             if search_key in self.lists[j]:
-                return search_key ,j
+                return search_key, j
         return None, None
             
 
