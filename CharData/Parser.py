@@ -1,10 +1,13 @@
+from typing import TYPE_CHECKING
+
 import ply.lex as lex
 import ply.yacc as yacc
 from ply.lex import TOKEN
 # list of tokens (excluding literals):
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
+if TYPE_CHECKING:
+    from . import CharVersion
 from .CharExceptions import DataError, CGParseException
-from .CharVersion import CharVersion
 
 keywords = [
     'COND',
@@ -15,6 +18,8 @@ keywords = [
     'TRUE',
     'FALSE',
 ]
+
+_EMPTYSET = frozenset()
 
 # $Name tokens, where Name starts with a capital letter will be recognized iff(!) Name.upper() is in this dict.
 
@@ -30,33 +35,34 @@ special_args = {
 
     # TODO: AUTO and AUTOQUERY spec
 
-    'A': ('AUTO', 'A', frozenset()),  # $AUTO evaluates to whatever it would, if the AST was empty and it was queried directly.
-    'AUTO': ('AUTO', 'AUTO', frozenset()),
-    'Q': ('ARGNAME', 'Query', {'Query'}),  # $QUERY is the query string, usually equals to $NAME. Its presence needs special treatment.
-    'AQ': ('AUTOQUERY', 'AQ', {'Query'}),  # $AUTOQUERY evaluates to whatever it would if the AST was empty and it was queried as $QUERY
-    'AUTOQUERY': ('AUTOQUERY', 'AUTOQUERY', {'Query'}),
-    'QUERY': ('ARGNAME', 'Query', {'Query'}),
-    'NAME': ('ARGNAME', 'Name', {'Name'}),  # $Name is set by the caller. It does not actually need special treatment here (apart from beginning  with a capital)
+    'A': ('AUTO', 'A'),  # $AUTO evaluates to whatever it would, if the AST was empty and it was queried directly.
+    'AUTO': ('AUTO', 'AUTO'),
+    'Q': ('SPECIALARG', 'Query'),  # $QUERY is the query string, usually equals to $NAME. Its presence needs special treatment.
+    'AQ': ('AUTOQUERY', 'AQ'),  # $AUTOQUERY evaluates to whatever it would if the AST was empty and it was queried as $QUERY
+    'AUTOQUERY': ('AUTOQUERY', 'AUTOQUERY'),
+    'QUERY': ('SPECIALARG', 'Query'),
+    'NAME': ('SPECIALARG', 'Name'),  # $Name is set by the caller. It does not actually need special treatment here (apart from beginning  with a capital)
 }
 
+_ALLOWED_SPECIAL_ARGS = frozenset({'Name', 'Query'})
+
 tokens = [
-    'STRING',     # Quote - enclosed string
-    'IDIV',       # // (integral division, as opposed to /, which gives floats)
-    'INT',        # Integer
-    'FLOAT',      # Floats
-    'FUNCNAME',   # FUNCTION (all - caps)
-    'LOOKUP',     # attr.strength
-    'EQUALS',     # == (equality comparison)
-    'NEQUALS',    # != (inequality comparison)
-    'LTE',        # <=
-    'GTE',        # >=
-    'ARGNAME',    # $argument
-    'AUTO',       # $A[uto] - gets default value
-    # 'QUERY',    # $Q[uery] - query string
-    'AUTOQUERY',  # $AUTOQUERY - gets default value for original query string
-    'NEEDSENV',   # fictious token that gets generated at the end by the lexer and contains information on whether certain special tokens appear.
-                  # A final parser rule expression :== expression NEEDSENV then collects this and passes this on to the caller.
-                  # This is a bit more efficient than propagating needs_env through the AST tree.
+    'STRING',      # Quote - enclosed string
+    'IDIV',        # // (integral division, as opposed to /, which gives floats)
+    'INT',         # Integer
+    'FLOAT',       # Floats
+    'FUNCNAME',    # FUNCTION (all - caps)
+    'LOOKUP',      # attr.strength
+    'EQUALS',      # == (equality comparison)
+    'NEQUALS',     # != (inequality comparison)
+    'LTE',         # <=
+    'GTE',         # >=
+    'ARGNAME',     # $argument
+    'SPECIALARG',  # $Argument
+    'AUTO',        # $A[uto] - gets default value
+    # 'QUERY',     # $Q[uery] - query string
+    'AUTOQUERY',   # $AUTOQUERY - gets default value for original query string
+
 ] + keywords
 literals = "+-*/%()[],<>="
 
@@ -95,12 +101,11 @@ def t_WORD(token):
         try:
             spec = special_args[token.value[1:].upper()]
         except KeyError:
-            token.lexer.needs_env = set()
             raise SyntaxError("Invalid argument name $" + token.value)
         else:
             token.type = spec[0]
             token.value = spec[1]
-            token.lexer.needs_env |= spec[2]
+            # token.lexer.needs_env |= spec[2]
     elif re_argname.fullmatch(token.value):  # r"[$][a-z_]+"
         token.type = 'ARGNAME'
         token.value = token.value[1:]  # strip leading $
@@ -113,7 +118,6 @@ def t_WORD(token):
     elif re_key_any.fullmatch(token.value):  # complicated regexp, matching lookups attr.strength etc.
         token.type = 'LOOKUP'
     else:
-        token.lexer.needs_env = set()
         raise SyntaxError("Did not recognize String " + token.value)
     return token
 
@@ -152,23 +156,8 @@ def t_WORD(token):
 #     return token
 
 
-# triggered at end of parse string.
-# If lexer.needs_env != {}, we generate a new token of type 'NEEDSENV' that contains the needs_env information.
-# After this is processed, t_eof is called again, but this time with lexer.needs_env == {}. Returning None ends parsing.
-def t_eof(token):
-    if token.lexer.needs_env != set():
-        r = lex.LexToken()
-        r.type = 'NEEDSENV'
-        r.value = token.lexer.needs_env
-        r.lineno = 0
-        r.lexpos = 0
-        token.lexer.needs_env = set()
-        return r
-    else:
-        return None
 
 def t_error(token):
-    token.lexer.needs_env = set()
     token.lexer.input("")
     raise SyntaxError("Could not parse formula")
 
@@ -181,7 +170,6 @@ t_LTE = r"<="
 t_GTE = r">="
 
 lexer = lex.lex()
-lexer.needs_env = set()
 
 # We parse the input string into an abstract syntax tree object.
 # (non-leaf nodes correspond to operations, children to operands, leafs to literals)
@@ -210,13 +198,19 @@ class AST:
     For the root node, needs_env contains the set of free variables/dependencies that need to be passed via context.
     """
     typedesc = 'AST'  # for debug printing. Should never be used on parent class.
-    needs_env = frozenset()  # default if need_env is never set for a particular object.
-    def __init__(self, *kw):
-        """Creates an AST Node. Positional arguments are stored as child nodes. These are ASTs except for literals"""
+    needs_env = _EMPTYSET  # default if need_env is never set for a particular object.
+    def __init__(self, *kw, needs_env=None):
+        """ Creates an AST Node. Positional arguments are stored into child nodes. These are usually ASTs except for literals"""
+        """ Note that some derived classes override __init__ without calling super. This is done for leaf nodes."""
         self.child = kw
-    def __str__(self):  # Debug only
+        if needs_env is None:
+            self.needs_env = _EMPTYSET.union(*[x.needs_env for x in kw])
+        else:
+            self.needs_env = needs_env
+    def __str__(self):  # Debug only, overridden in leaf nodes
         return self.typedesc + '[' + ", ".join([str(x) for x in self.child]) + ']'
-    def eval_ast(self, data_list: CharVersion, context: dict):
+
+    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
         """
         evaluates the ast within the given context.
         IMPORTANT: eval_ast can return lambdas which may capture data_list and context possibly *by reference*.
@@ -358,33 +352,72 @@ class AST_Cond(AST):
 
 class AST_Literal(AST):
     typedesc = 'Literal'
+    needs_env = _EMPTYSET
+
+    def __init__(self, val):
+        super().__init__()
+        self.value = val
+
+    def __str__(self):
+        return self.typedesc + '(' + str(self.value) + ')'
 
     # noinspection PyUnusedLocal
     def eval_ast(self, data_list, context):
-        return self.child[0]
+        return self.value
 
 class AST_Lookup(AST):
     typedesc = 'Lookup'
+    needs_env = _EMPTYSET  # TODO :Change?
+
+    def __init__(self, name):
+        super().__init__(needs_env=self.__class__.needs_env)
+        self.name = name
+
+    def __str__(self):
+        return self.typedesc + '(' + str(self.name) + ')'
+
     def eval_ast(self, data_list, context):
         assert False  # TODO
 
 class AST_Funcname(AST):
     typedesc = 'Function Name'
+    needs_env = _EMPTYSET #  TODO : Possibly change, depending on how we pass lookup.
+
+    def __init__(self, funcname):
+        super().__init__(needs_env=self.__class__.needs_env)
+        self.funcname = funcname
+
+    def __str__(self):
+        return self.typedesc + '(' + str(self.funcname) + ')'
+
     def eval_ast(self, data_list, context):
         # TODO: Change? This is only here to simplify debugging
-        if self.child[0] == 'LIST':
+        if self.funcname == 'LIST':
             return lambda *kw: [*kw]
-        if self.child[0] == 'DICT':
+        if self.funcname == 'DICT':
             return dict
         assert False
 
 class AST_Argname(AST):
     typedesc = 'Argument'
+
+    def __init__(self, argname, needs_env=_EMPTYSET):
+        self.argname = argname
+        super().__init__(needs_env=needs_env)
+
+    def __str__(self):
+        return self.typedesc + '(' + str(self.argname) + ')'
+
     def eval_ast(self, data_list, context):
-        return context[self.child[0]]  # may raise exception
+        return context[self.argname]  # may raise exception
 
 class AST_Auto(AST):
     typedesc = 'Auto'
+    needs_env = _EMPTYSET  # TODO: Change
+
+    def __init__(self):
+        super().__init__(needs_env=self.__class__.needs_env)
+
     def eval_ast(self, data_list, context):
         assert False  # TODO
 
@@ -414,6 +447,23 @@ class AST_FunctionCall(AST):
 # Lambdas
 class AST_Lambda(AST):
     typedesc = 'Lambda'
+
+    def __init__(self, expected_args, body):
+
+        # This determines the set of free variables.
+        # Note that by going backwards and removing before adding, this means that
+        # lambdas such as FUN[$c,$d]( FUN[$a, $b=$a, $c=$c]($a+$b+$c+$d) ) work out correctly:
+        # $b = $a will default $b to the first positional argument
+        # (because we assign the new local context from left to right and evaluate defaults at with the new local context)
+        # $c = $c will default the inner $c to the outer $c
+        needs_env = set(body.needs_env)
+        for arg in reversed(expected_args):
+            needs_env.discard(arg[0])  # arg[0] may be None. In this case, this does nothing.
+            if arg[1] is _ARGTYPE_DEFAULT:
+                needs_env |= arg[2].needs_env
+
+        super().__init__(expected_args, body, needs_env=needs_env)
+
     def eval_ast(self, data_list, context: dict):
         # self.child[0] is a list of pairs (name, type) or triples (name, type, defaultarg) for the variable names:
         # name is a string denoting the actual name (or None for *)
@@ -421,7 +471,11 @@ class AST_Lambda(AST):
         # name, name = default, *, *name and **name
         # self.child[1] is an AST for the actual function body.
         # As opposed to Python proper, it does not matter much when we evaluate default arguments, because we can't mutate anyway.
-        # We choose to evaluate at (each) call, if actually needed (which means that unused invalid default arguments do not trigger errors)
+        # We choose to evaluate at (each) call, if actually needed.
+        # This means that unused invalid default arguments do not trigger errors and that we can use previous argument
+        # values as defaults: LAMBDA[$a, $b=$a](...)
+        # Special args like $Name in default arguments bind to the value at lambda definition at any rate, because
+        # we capture old_context.
 
         # Captures: data_list and context
         expectedargs = self.child[0]
@@ -429,7 +483,7 @@ class AST_Lambda(AST):
         body = self.child[1]
 
         # (shallow) copy the context or use a reference.
-        # Shallow copy is the "correct" way, but this is inconsistent with the handling of data_list, which we really
+        # Shallow copy is the semantically "correct" way, but this is inconsistent with the handling of data_list, which we really
         # do not want to copy. I miss C++ r-value references...
         old_context = dict(context)
         def fun(*funargs, **kwargs):
@@ -452,7 +506,8 @@ class AST_Lambda(AST):
                         else:
                             raise AttributeError("Missing positional argument $" + arg[0])
                     else:
-                        defaultarg = arg[2].eval_ast(data_list, context)
+                        # using new_context would allow FUN[$a, $b=$a](...), but make checking harder
+                        defaultarg = arg[2].eval_ast(data_list, new_context)
                         if isinstance(defaultarg, DataError):
                             return defaultarg
                         new_context[arg[0]] = defaultarg
@@ -481,9 +536,8 @@ class AST_GetItem(AST_BinOp):
     def eval_fun(container, index):
         return container[index]
 
-start = 'expression'
+start = 'root_expression'
 precedence = (
-    ('nonassoc', 'NEEDSENV'),
     ('right', 'OR'),
     ('right', 'AND'),
     ('right', 'NOT'),
@@ -493,14 +547,14 @@ precedence = (
 )
 
 def p_error(p):
-    lexer.needs_env = set()
     raise CGParseException
 
-def p_needsenv(p):
-    "expression : expression NEEDSENV"
+# root_expression serves as a hook for "done with parsing"
+def p_root(p):
+    "root_expression : expression"
     p[0] = p[1]
-    p[0].needs_env = p[2]
-
+    if not p[0].needs_env <= _ALLOWED_SPECIAL_ARGS:
+        raise CGParseException("Unbound variables $" + " $".join(_ALLOWED_SPECIAL_ARGS-p[0].needs_env))
 
 def p_expression_bracket(p):
     "expression : '(' expression ')' "
@@ -593,7 +647,11 @@ def p_expression_name(p):
 
 def p_expression_variable(p):
     "expression : ARGNAME"
-    p[0] = AST_Argname(p[1])
+    p[0] = AST_Argname(p[1], needs_env=frozenset({p[1]}))
+
+def p_expression_specialarg(p):
+    "expression : SPECIALARG"
+    p[0] = AST_Argname(p[1], needs_env=frozenset({p[1]}))
 
 def p_expression_auto(p):
     "expression : AUTO"
@@ -671,7 +729,6 @@ def p_function_call(p):
         if arg.argtype is _FUNARG_STARSTAREXP or arg.argtype is _FUNARG_NAMEVAL:
             kwonly = True
         elif kwonly:
-            lexer.needs_env = set()
             raise CGParseException("Positional arguments must not follow keyword arguments")
     p[0] = AST_FunctionCall(p[1], *p[3])
     
@@ -715,6 +772,8 @@ def p_declarg_list(p):
         p[0] = []
     else:
         p[0] = p[1]
+    if len(p[0]) != len(set(x[0] for x in p[0])):
+        raise CGParseException("Duplicate argument used in function definition")
 
 def p_declarglist_nonempty(p):
     """declarglist_nonempty : declarg
@@ -733,24 +792,21 @@ def p_functiondef(p):
     seen_end = False
     for arg in args:
         if seen_end:
-            lexer.needs_env = set()
             raise CGParseException("Arguments after end of kwargs")
         if arg[1] is _ARGTYPE_NORMAL:  # normal argument $a
             if seen_default and not seen_restkw:
-                lexer.needs_env = set()
                 raise CGParseException("positional arg after defaulted arg")
         elif arg[1] is _ARGTYPE_DEFAULT:  # defaulted argument $a = 1
             seen_default = True
         elif (arg[1] is _ARGTYPE_STAR) or (arg[1] is _ARGTYPE_STARARG):  # end of positional arguments * or *$a
             if seen_restkw:
-                lexer.needs_env = set()
                 raise CGParseException("taking rest of positional arguments multiple times")
             seen_restkw = True
         elif arg[1] is _ARGTYPE_KWARGS:  # **$kwargs must be last
             seen_end = True
         else:
             assert False
-    p[0] = AST_Lambda(args, p[6])  # Note that p[3] is a list
+    p[0] = AST_Lambda(args, p[6])  # Note that p[3] is a list, which is NOT unpacked here. p[6] is the body.
 
 parser = yacc.yacc()
 
@@ -767,7 +823,7 @@ def input_string_to_value(input_string: str):
         try:
             result = parser.parse(input_string[1:])
         except Exception as e:
-            result = DataError(exception=e)
+            result = DataError(exception=e)  # TODO: Change? This easily creates reference cycles
         return result
     elif re_number_int.fullmatch(input_string):
         return int(input_string)

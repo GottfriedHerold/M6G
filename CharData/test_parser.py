@@ -38,8 +38,22 @@ def test_bracket():
     assert ev(T) == 27
 
 def test_variable():
-    T = p("$var + 4")
-    assert T.eval_ast(None, {'var': 7}) == 11
+    old = Parser._ALLOWED_SPECIAL_ARGS
+    try:
+        Parser._ALLOWED_SPECIAL_ARGS |= {'var'}
+        T = p("$var + 4")
+        assert T.eval_ast(None, {'var': 7}) == 11
+    finally:
+        Parser._ALLOWED_SPECIAL_ARGS = old
+
+    try:
+        T = p("$var + 4")
+    except Parser.CGParseException:
+        pass
+    else:
+        assert False
+
+
 
 def test_equality():
     T = p("4 == 5")
@@ -110,7 +124,7 @@ def test_lambdas():
     assert evp("FUN[$a]($a+1)(2)") == 3
     assert evp("LAMBDA[$a]($a+1)(10)") == 11
     f = evp("FUN[$a, $b = 1+2, *$c, $d, $e = 5, $f, **$kwargs](LIST($a, $b, $c, $d, $e, $f, $kwargs)) ")
-    assert f(1,2,3,4, d=4, f=12, g = 8, h = 10) == [1,2,(3,4),4, 5,12,{'g':8, 'h':10} ]
+    assert f(1,2,3,4, d=4, f=12, g = 8, h = 10) == [1,2,(3,4),4, 5,12,{'g': 8, 'h': 10}]
 
     curry = evp("FUN[$fun, $first](FUN[$second]($fun($first,$second) ))")
     mult = evp("FUN[$first, $second]($first * $second)")
@@ -118,3 +132,10 @@ def test_lambdas():
 
     assert curry(mult, 4)(5) == 20
     assert curry(curry, mult2)(4)(5) == 20
+
+    g = evp("FUN[$a, $c, $d](FUN[$a, $b = $a, $c=$c](LIST($a,$b,$c,$d))  )  ")
+    f = g(1, 2, 3)
+    assert f(4) == [4, 4, 2, 3]
+    assert f(5) == [5, 5, 2, 3]
+    assert f(0, 1) == [0, 1, 2, 3]
+    assert f(0, 1, 10) == [0, 1, 10, 3]

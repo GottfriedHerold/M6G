@@ -75,3 +75,22 @@ def locate_function(self, key: str):
         if search_key in self.lists[j]:
             return search_key, j
     return None, None
+
+
+
+
+
+# triggered at end of parse string.
+# If lexer.needs_env != {}, we generate a new token of type 'NEEDSENV' that contains the needs_env information.
+# After this is processed, t_eof is called again, but this time with lexer.needs_env == {}. Returning None ends parsing.
+def t_eof(token):
+    if token.lexer.needs_env != set():
+        r = lex.LexToken()
+        r.type = 'NEEDSENV'
+        r.value = token.lexer.needs_env
+        r.lineno = 0
+        r.lexpos = 0
+        token.lexer.needs_env = set()
+        return r
+    else:
+        return None
