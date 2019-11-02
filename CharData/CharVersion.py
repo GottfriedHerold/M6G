@@ -15,34 +15,12 @@ We take the first match we find and return an arbitrary python object.
 
 from datetime import datetime, timezone
 from collections import UserDict
+import itertools
 from . import Regexps
 from . import Parser
 from . import CharExceptions
 
-
 _ALL_SUFFIX = "_all"
-
-def input_string_to_value(input_string: str):
-    if len(input_string) == 0:
-        return None
-    # "STRING or "STRING" or 'STRING or 'STRING' all parse as strings
-    if input_string[0] == '"' or input_string[0] == "'":
-        if input_string[-1] == input_string[0]:
-            return input_string[1:-1]
-        else:
-            return input_string[1:]
-    elif input_string[0] == '=':
-        try:
-            result = Parser.parser.parse(input_string[1:])
-        except Exception as e:
-            result = CharExceptions.DataError(exception=e)
-        return result
-    elif Regexps.re_number_int.fullmatch(input_string):
-        return int(input_string)
-    elif Regexps.re_number_float.fullmatch(input_string):
-        return float(input_string)
-    else:
-        return input_string
 
 class CharVersion:
     # TODO: add arguments
@@ -64,97 +42,51 @@ class CharVersion:
             located_key, where = self.locate_function(key)  # TODO
         else:
             assert Regexps.re_key_any.fullmatch(key)
-            if Regexps.re_key_restrict.fullmatch(key):
-                located_key, where = self.locate_restricted(key, restrict=Regexps.re_key_restrict.fullmatch(key))
+            located_key, where = self.locate(key, restrict=Regexps.re_key_restrict.fullmatch(key))
         if where is None:
             return CharExceptions.DataError(key + " not found")
         ret = self.lists[where][located_key]
         if isinstance(ret, Parser.AST):
-            context = {'Name': located_key}
+            context = {'Name': located_key, 'Query': key}
             try:
                 ret = ret.eval_ast(self, context)
             except Exception as e:
                 ret = CharExceptions.DataError("Error evaluating " + key, exception=e)
         return ret
-            
-        
 
-    def locate(self, key: str, *, startafter = None, restrict = False):
-        # Check at call site. TODO: Verify this! (Otherwise, raise Exception)
-        if restrict:
-            assert Regexps.re_key_restrict.fullmatch(key)
-        else:
-            assert Regexps.re_key_regular.fullmatch(key)
-        L = len(self.lists)
-        # L = 3  #  for debug
-        split_key = key.split('.')
+    def lookup_candidates(self, query: str, restricted: bool = False):
+        assert Regexps.re_key_any.fullmatch(query)
+        if restricted:
+            assert Regexps.re_key_restrict.fullmatch(query)
+        length = len(self.lists)
+        # length = 3
+        split_key = query.split('.')
         keylen = len(split_key)
+        assert keylen > 0
         main_key = split_key[keylen-1]
-        
 
-        # This is really 2 for-loops, but we need to be able to start in the middle of an inner loops.
-        # So it becomes easier to write it as a single while-loop
-        
-        if startafter:
-            j = startafter[1]
-            current = startafter[0].split('.')
-            search_key = startafter[0]
-            i = len(current) - 1
-            postfix = current[-1]
-        else:
-            i = keylen # length of prefix to take
-            j = L-1 #
-            postfix = _ALL_SUFFIX
-        while True:
-            j+=1
-            if j == L:
-                j = 0
-                if postfix == _ALL_SUFFIX:  # comparison with == rather than is (because main_key == ALL_SUFFIX is possible)
-                    postfix = main_key
-                    i-=1
-                    if i == -1:
-                        return None, None
-                else:
-                    postfix = _ALL_SUFFIX
-                search_key = ".".join(split_key[0:i] + [postfix])
-                if restrict and Regexps.re_key_regular.fullmatch(search_key):
-                    j = L - 1
-                    continue
-            # print (search_key, j)
-            if search_key in self.lists[j]:
-                return search_key, j
-        
-        
+        for i in range(keylen-1, -1, -1):
+            # prefix = ".".join(split_key[0:i])
+            search_key = ".".join(split_key[0:i] + [main_key])
+            if restricted and not Regexps.re_key_restrict.fullmatch(search_key):
+                # In restricted mode, we only yield restricted search keys.
+                # Note that if search_key is not restricted, all further search keys won't be either, so we break.
+                break
+            for j in range(length):
+                yield (search_key, j)
+            if main_key == _ALL_SUFFIX:
+                continue
+            search_key = ".".join(split_key[0:i] + [_ALL_SUFFIX])
+            if restricted and not Regexps.re_key_restrict.fullmatch(search_key):
+                # Same as above, but if search_key is not restricted, further search keys may become restricted again.
+                # (This happens if the main_key part causes search_key to be restricted)
+                continue
+            for j in range(length):
+                yield (search_key, j)
+        return
 
-        
-        #for i in range(keylen-1, -1,-1):
-        #    prefix = ".".join(split_key[0:i])
-        #    search_key = prefix + "." + main_key
-        #    for j in range(L):
-        #    #   print(search_key, j) -- debug
-        #        if search_key in self.lists[j]:
-        #            return search_key, j
-        #    search_key = prefix + "._all"
-        #    for j in range(L):
-        #    #   print(search_key, j)  -- debug
-        #        if search_key in self.lists[j]:
-        #            return search_key, j
-        #return None, None
-
-    
-    def locate_function(self, key: str):
-        main_key = key.lower()
-        L = len(self.lists)
-        search_key = "__fun__" + main_key
-        for j in range(L):
-            if search_key in self.lists[j]:
-                return search_key, j
-        search_key = "_fun" + main_key
-        for j in range(L):
-            if search_key in self.lists[j]:
-                return search_key, j
-        return None, None
-            
+    def find_lookup(self, query: str):
+        yield from filter(lambda pair: pair[0] in self.lists[pair[1]],  self.lookup_candidates(query))
 
 
 class DataSetTypes:
@@ -171,6 +103,7 @@ class DataSetTypes:
 
 class UserDataSet(UserDict):
     dict_type = DataSetTypes.USER_INPUT
+    # Note: We have no startdict, because we want input_data to be consistent.
     def __init__(self, *, description: str = ""):
         super().__init__()  # empty dict
         self.description = description
@@ -184,13 +117,10 @@ class UserDataSet(UserDict):
             del self[key]
             return
         self.input_data[key] = value
-        self[key] = input_string_to_value(value)
+        self[key] = Parser.input_string_to_value(value)
 
     def get_input(self, key):
         return self.input_data.get(key, None)
-
-        
-        
 
 class CoreRuleDataSet(UserDict):
     dict_type = DataSetTypes.CORE_RULES
@@ -205,7 +135,7 @@ class CoreRuleDataSet(UserDict):
         if len(value) == 0:
             del self[key]
         else:
-            self[key] = input_string_to_value(value)
+            self[key] = Parser.input_string_to_value(value)
 
     def get_input(self, key):
         return None

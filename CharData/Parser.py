@@ -754,6 +754,28 @@ def p_functiondef(p):
 
 parser = yacc.yacc()
 
+def input_string_to_value(input_string: str):
+    if len(input_string) == 0:
+        return None
+    # "STRING or "STRING" or 'STRING or 'STRING' all parse as strings
+    if input_string[0] == '"' or input_string[0] == "'":
+        if input_string[-1] == input_string[0]:
+            return input_string[1:-1]
+        else:
+            return input_string[1:]
+    elif input_string[0] == '=':
+        try:
+            result = parser.parse(input_string[1:])
+        except Exception as e:
+            result = DataError(exception=e)
+        return result
+    elif re_number_int.fullmatch(input_string):
+        return int(input_string)
+    elif re_number_float.fullmatch(input_string):
+        return float(input_string)
+    else:
+        return input_string
+
 # for debugging.
 # if __name__ == '__main__':
 #     lex.runmain()
