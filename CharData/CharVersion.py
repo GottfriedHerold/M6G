@@ -15,7 +15,8 @@ We take the first match we find and return an arbitrary python object.
 
 from datetime import datetime, timezone
 from collections import UserDict
-import itertools
+import typing
+# import itertools
 from . import Regexps
 from . import Parser
 from . import CharExceptions
@@ -37,28 +38,43 @@ class CharVersion:
             self.lists = initial_lists
         return
 
-    def get(self, key, *, loc_fun: bool = False):
-        if loc_fun:
-            located_key, where = self.locate_function(key)  # TODO
-        else:
-            assert Regexps.re_key_any.fullmatch(key)
-            located_key, where = self.locate(key, restrict=Regexps.re_key_restrict.fullmatch(key))
-        if where is None:
-            return CharExceptions.DataError(key + " not found")
+    def get(self, query, *, locator: typing.Iterable = None):
+        if locator is None:
+            # print('Calling with ' + query + ' empty locator')
+            locator = self.find_lookup(query)
+        # else:
+            # print('Calling with ' + query + ' locator= ' + str(locator))
+        it = iter(locator)  # annoying: whether get mutates the input locator depends on the type of locator.
+                            # (namely, if locator is an iterator, it does. If it is a list, it does not)
+                            # get is used with both cases and we actually NEED that guarantee sometimes.
+        try:
+            located_key, where = next(it)
+        except StopIteration:
+            return CharExceptions.DataError(query + " not found")
+
         ret = self.lists[where][located_key]
         if isinstance(ret, Parser.AST):
-            context = {'Name': located_key, 'Query': key}
+            needs_env = ret.needs_env
+            context = {'Name': located_key, 'Query': query}
+            if Parser.CONTINUE_LOOKUP in needs_env:
+                context[Parser.CONTINUE_LOOKUP] = list(it)
+                # print('evaluating with context= ' + str(context))
+            assert needs_env <= context.keys()
             try:
                 ret = ret.eval_ast(self, context)
-            except Exception as e:
-                ret = CharExceptions.DataError("Error evaluating " + key, exception=e)
+            except Exception as e:  # TODO: More fine-grained
+                if isinstance(e, AssertionError):
+                    raise
+                ret = CharExceptions.DataError("Error evaluating " + located_key, exception=e)  # TODO: Keep exception?
         return ret
 
-    def lookup_candidates(self, query: str, restricted: bool = False):
+    def lookup_candidates(self, query: str, *, restricted: bool = None, lists: typing.Iterable = None):
         assert Regexps.re_key_any.fullmatch(query)
-        if restricted:
-            assert Regexps.re_key_restrict.fullmatch(query)
-        length = len(self.lists)
+        if restricted is None:
+            restricted = not Regexps.re_key_regular.fullmatch(query)
+        if lists is None:
+            lists = range(len(self.lists))
+
         # length = 3
         split_key = query.split('.')
         keylen = len(split_key)
@@ -72,7 +88,7 @@ class CharVersion:
                 # In restricted mode, we only yield restricted search keys.
                 # Note that if search_key is not restricted, all further search keys won't be either, so we break.
                 break
-            for j in range(length):
+            for j in lists:
                 yield (search_key, j)
             if main_key == _ALL_SUFFIX:
                 continue
@@ -81,12 +97,36 @@ class CharVersion:
                 # Same as above, but if search_key is not restricted, further search keys may become restricted again.
                 # (This happens if the main_key part causes search_key to be restricted)
                 continue
-            for j in range(length):
+            for j in lists:
                 yield (search_key, j)
         return
 
+    def function_candidates(self, query: str, *, lists: typing.Iterable = None):
+        """
+        Obtains a list of candidate positions for a function name lookup for query.upper()
+        Returns pairs (key, index into lists)
+
+        :param query: function name in lowercase
+        :param lists: iterable of lists to look in. Defaults to all.
+        """
+        assert Regexps.re_funcname_lowercased.fullmatch(query)
+        if lists is None:
+            lists = range(len(self.lists))
+        s = '__fun__.' + query
+        for j in lists:
+            yield (s, j)
+        s = 'fun.' + query
+        for j in lists:
+            yield (s, j)
+
+    def has_value(self, pair):
+        return pair[0] in self.lists[pair[1]]
+
     def find_lookup(self, query: str):
-        yield from filter(lambda pair: pair[0] in self.lists[pair[1]],  self.lookup_candidates(query))
+        yield from filter(self.has_value, self.lookup_candidates(query))
+
+    def find_function(self, query: str):
+        yield from filter(self.has_value, self.function_candidates(query))
 
 
 class DataSetTypes:
@@ -124,9 +164,11 @@ class UserDataSet(UserDict):
 
 class CoreRuleDataSet(UserDict):
     dict_type = DataSetTypes.CORE_RULES
-    def __init__(self, desciption: str = "core rules", startdict: dict = {}):
+    def __init__(self, desciption: str = "core rules", startdict: dict = None):
         super().__init__()
         self.description = desciption
+        if startdict is None:
+            startdict = {}
         assert isinstance(startdict, dict)
         self.data = startdict
 

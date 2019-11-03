@@ -5,9 +5,9 @@ import ply.yacc as yacc
 from ply.lex import TOKEN
 # list of tokens (excluding literals):
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
+from .CharExceptions import DataError, CGParseException
 if TYPE_CHECKING:
     from . import CharVersion
-from .CharExceptions import DataError, CGParseException
 
 keywords = [
     'COND',
@@ -20,31 +20,31 @@ keywords = [
 ]
 
 _EMPTYSET = frozenset()
+CONTINUE_LOOKUP = 'Continue'
 
 # $Name tokens, where Name starts with a capital letter will be recognized iff(!) Name.upper() is in this dict.
 
 special_args = {
     # keys are what is recognized as $Key (after uppercasing, so keys need to be capitalized here).
-    # values are triples (TOKEN, Value, Args) to mean that this gets parsed as a token TOKEN with value Value.
-    # TOKEN needs to be in the tokens list. Value is the value seen by a propagated by the AST browser. In particular,
-    # for TOKEN == 'ARGNAME', Value determines which variable is looked up from the context dict in eval_ast, i.e.
-    # under which name the binding is supplied by the external caller.
+    # values are pairs (TOKEN, Value) to mean that this gets parsed as a token TOKEN with value Value.
+    # TOKEN needs to be in the tokens list. Value is what is seen by the parser rules.
+    # In particular, for TOKEN == 'ARGNAME', Value determines which variable is looked up from the context dict
+    # in eval_ast, i.e. under which name the binding is supplied by the external caller.
     # Values for these special arguments should begin with a capital letter in order to be from a set of names disjoint
-    # from internal user-provided variables used in lambdas.
-    # Args denotes the set of Values that are used during evaluation and that get union'ed into needs_env.
+    # from internal user-provided variables used in lambdas. They also need to be in _ALLOWED_SPECIAL_ARGS in order
+    # escape as a free variables.
+    # For TOKEN == 'AUTO', context[Value] is what gets passed as new query string.
 
-    # TODO: AUTO and AUTOQUERY spec
-
-    'A': ('AUTO', 'A'),  # $AUTO evaluates to whatever it would, if the AST was empty and it was queried directly.
-    'AUTO': ('AUTO', 'AUTO'),
-    'Q': ('SPECIALARG', 'Query'),  # $QUERY is the query string, usually equals to $NAME. Its presence needs special treatment.
-    'AQ': ('AUTOQUERY', 'AQ'),  # $AUTOQUERY evaluates to whatever it would if the AST was empty and it was queried as $QUERY
-    'AUTOQUERY': ('AUTOQUERY', 'AUTOQUERY'),
+    'A': ('AUTO', 'Name'),  # $AUTO evaluates to whatever it would, if the AST was empty and it was queried directly.
+    'AUTO': ('AUTO', 'Name'),
+    'AQ': ('AUTO', 'Query'),  # $AUTOQUERY evaluates to whatever it would if the AST was empty and it was queried as $QUERY
+    'AUTOQUERY': ('AUTO', 'Query'),
+    'Q': ('SPECIALARG', 'Query'),  # $QUERY is the query string, usually equals to $NAME.
     'QUERY': ('SPECIALARG', 'Query'),
-    'NAME': ('SPECIALARG', 'Name'),  # $Name is set by the caller. It does not actually need special treatment here (apart from beginning  with a capital)
+    'NAME': ('SPECIALARG', 'Name'),  # $Name is set by the caller.
 }
 
-_ALLOWED_SPECIAL_ARGS = frozenset({'Name', 'Query'})
+_ALLOWED_SPECIAL_ARGS = frozenset({'Name', 'Query', CONTINUE_LOOKUP})
 
 tokens = [
     'STRING',      # Quote - enclosed string
@@ -59,11 +59,9 @@ tokens = [
     'GTE',         # >=
     'ARGNAME',     # $argument
     'SPECIALARG',  # $Argument
-    'AUTO',        # $A[uto] - gets default value
-    # 'QUERY',     # $Q[uery] - query string
-    'AUTOQUERY',   # $AUTOQUERY - gets default value for original query string
-
+    'AUTO',        # $A[uto] - gets default value (i.e. continues lookup).
 ] + keywords
+
 literals = "+-*/%()[],<>="
 
 # Note: Order matters!
@@ -81,7 +79,7 @@ def t_FLOAT(token):
     token.value = float(token.value)
     return token
 
-# This must come after t_FLOAT (so that the prefix "5" of 5.4 is not parsed as an int)
+# This must come after t_FLOAT (so that e.g. the prefix "5" of 5.4 is not parsed as an int)
 @TOKEN(re_number_int.pattern)  # integers
 def t_INT(token):
     token.value = int(token.value)
@@ -156,12 +154,13 @@ def t_WORD(token):
 #     return token
 
 
-
 def t_error(token):
     token.lexer.input("")
     raise SyntaxError("Could not parse formula")
 
+
 t_ignore = ' \t\n\r\f\v'  # ignore (ASCII) whitespace
+
 
 t_IDIV = r"//"
 t_EQUALS = r"=="
@@ -367,7 +366,7 @@ class AST_Literal(AST):
 
 class AST_Lookup(AST):
     typedesc = 'Lookup'
-    needs_env = _EMPTYSET  # TODO :Change?
+    needs_env = _EMPTYSET
 
     def __init__(self, name):
         super().__init__(needs_env=self.__class__.needs_env)
@@ -377,11 +376,11 @@ class AST_Lookup(AST):
         return self.typedesc + '(' + str(self.name) + ')'
 
     def eval_ast(self, data_list, context):
-        assert False  # TODO
+        return data_list.get(self.name)
 
 class AST_Funcname(AST):
     typedesc = 'Function Name'
-    needs_env = _EMPTYSET #  TODO : Possibly change, depending on how we pass lookup.
+    needs_env = _EMPTYSET
 
     def __init__(self, funcname):
         super().__init__(needs_env=self.__class__.needs_env)
@@ -396,7 +395,7 @@ class AST_Funcname(AST):
             return lambda *kw: [*kw]
         if self.funcname == 'DICT':
             return dict
-        assert False
+        return data_list.get(self.funcname, locator=data_list.find_function(self.funcname.lower()))
 
 class AST_Argname(AST):
     typedesc = 'Argument'
@@ -413,13 +412,14 @@ class AST_Argname(AST):
 
 class AST_Auto(AST):
     typedesc = 'Auto'
-    needs_env = _EMPTYSET  # TODO: Change
 
-    def __init__(self):
-        super().__init__(needs_env=self.__class__.needs_env)
+    def __init__(self, queryname):
+        super().__init__(needs_env={CONTINUE_LOOKUP, queryname})
+        self.queryname = queryname
 
     def eval_ast(self, data_list, context):
-        assert False  # TODO
+        return data_list.get(context[self.queryname], locator=context[CONTINUE_LOOKUP])
+
 
 class AST_FunctionCall(AST):
     typedesc = 'Call'
@@ -486,6 +486,7 @@ class AST_Lambda(AST):
         # Shallow copy is the semantically "correct" way, but this is inconsistent with the handling of data_list, which we really
         # do not want to copy. I miss C++ r-value references...
         old_context = dict(context)
+
         def fun(*funargs, **kwargs):
             new_context = dict(old_context)  # shallow copy should be OK. We do not modify new_context[key] values
             funargpos = 0  # index of next funarg that has not yet been assigned to an expected argument
@@ -536,7 +537,9 @@ class AST_GetItem(AST_BinOp):
     def eval_fun(container, index):
         return container[index]
 
+
 start = 'root_expression'
+
 precedence = (
     ('right', 'OR'),
     ('right', 'AND'),
@@ -546,6 +549,8 @@ precedence = (
     ('left', '*', '/', '%', 'IDIV'),
 )
 
+
+# noinspection PyUnusedLocal
 def p_error(p):
     raise CGParseException
 
@@ -655,11 +660,8 @@ def p_expression_specialarg(p):
 
 def p_expression_auto(p):
     "expression : AUTO"
-    p[0] = AST_Auto()  # TODO
+    p[0] = AST_Auto(p[1])
 
-def p_expression_autoquery(p):
-    "expression : AUTOQUERY"
-    assert False  # TODO
 
 # p_argument turns an expression exp into a function argument, e.g. for use in f(exp)
 # To be consistent with Python, function arguments can be of the form
@@ -732,12 +734,10 @@ def p_function_call(p):
             raise CGParseException("Positional arguments must not follow keyword arguments")
     p[0] = AST_FunctionCall(p[1], *p[3])
     
-
-
-
 def p_getitem(p):
     "expression : expression '[' expression ']'"
     p[0] = AST_GetItem(p[1], p[3])
+
 
 _ARGTYPE_NORMAL = 'Arg'  # def f(x)
 _ARGTYPE_DEFAULT = 'Defaulted Argument'  # def f(x=5)
@@ -808,6 +808,7 @@ def p_functiondef(p):
             assert False
     p[0] = AST_Lambda(args, p[6])  # Note that p[3] is a list, which is NOT unpacked here. p[6] is the body.
 
+
 parser = yacc.yacc()
 
 def input_string_to_value(input_string: str):
@@ -822,7 +823,7 @@ def input_string_to_value(input_string: str):
     elif input_string[0] == '=':
         try:
             result = parser.parse(input_string[1:])
-        except Exception as e:
+        except (SyntaxError, CGParseException) as e:
             result = DataError(exception=e)  # TODO: Change? This easily creates reference cycles
         return result
     elif re_number_int.fullmatch(input_string):
