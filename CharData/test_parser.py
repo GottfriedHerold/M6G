@@ -6,6 +6,13 @@ p = Parser.parser.parse
 ev = lambda T: T.eval_ast(None, {})
 evp = lambda s: ev(p(s))
 
+def test_rules():
+    for sa in Parser.special_args.values():
+        assert sa[0] in Parser.tokens
+    assert Parser.CONTINUE_LOOKUP not in Parser.special_args
+    for keyword in Parser.keywords:
+        assert keyword == keyword.upper()
+
 def test_add():
     T = p("1 + 5")
     assert ev(T) == 6
