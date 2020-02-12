@@ -23,6 +23,7 @@ from . import CharExceptions
 
 _ALL_SUFFIX = "_all"
 
+
 class CharVersion:
     # TODO: add arguments
     def __init__(self, *, creation_time=None, description: str = "", initial_lists: list = None):
@@ -32,6 +33,7 @@ class CharVersion:
         self.creation_time = creation_time
         self.last_modified = creation_time
         self.description = description
+        # TODO: automatically created lists may need handling here (such as directory listings)
         if initial_lists is None:
             self.lists = []
         else:
@@ -39,20 +41,49 @@ class CharVersion:
         return
 
     def get(self, query, *, locator: typing.Iterable = None):
+        """
+        Obtain an element from the current CharVersion database by query name.
+
+        locator should be usually be None. It encodes the list or a generator of all results that match the query
+         name according to our lookup rules. This is overridden to implement $AUTO(QUERY) calls.
+
+        :param query: The key to query for.
+        :param locator: (only used for $AUTOQUERY calls)
+        :return: database entry. DataError exception if key is not found.
+        """
         if locator is None:
             # print('Calling with ' + query + ' empty locator')
+            # This creates an generator, that yields all matches for the query key according to our lookup rules.
             locator = self.find_lookup(query)
         # else:
             # print('Calling with ' + query + ' locator= ' + str(locator))
-        it = iter(locator)  # annoying: whether get mutates the input locator depends on the type of locator.
-                            # (namely, if locator is an iterator, it does. If it is a list, it does not)
-                            # get is used with both cases and we actually NEED that guarantee sometimes.
+
+        # brittle: whether get mutates the input locator depends on the type of locator.
+        # Namely, if locator is an iterator, it does. If it is a list, it does not.
+        # get is used with both cases and we actually NEED that guarantee sometimes.
+
+        # More precisely, locator may be a list or a generator that holds the lookup matches for the query.
+        # In the generator case, it === locator and the following try...except block will forward the generator
+        # once (unless empty) to find the first match and modify it and locator.
+        # If Parser.CONTINUE_LOOKUP is set in ret.needs_env, the remaining matches
+        # are copied into a list such that eval_ast can recursively call get with locator = remaining list.
+        # In case locator is a list, it != locator: it is just an index into locator and the try...except block
+        # will not modify locator. This is important because eval_ast may call get multiple times with the same
+        # remaining list.
+        it = iter(locator)
+
         try:
+            # where is the index of the list where we found the match, located_key is the key within that list.
+            # Often, located_key == query, but located_key may be the fallback key that was actually found according
+            # to the lookup rules.
             located_key, where = next(it)
         except StopIteration:
             return CharExceptions.DataError(query + " not found")
 
         ret = self.lists[where][located_key]
+
+        # If ret is an AST, we need to evaluate it (otherwise, we return the result directly). Note that string literals
+        # without = are stored directly, not as ASTs.
         if isinstance(ret, Parser.AST):
             needs_env = ret.needs_env
             context = {'Name': located_key, 'Query': query}
@@ -62,20 +93,43 @@ class CharVersion:
             assert needs_env <= context.keys()
             try:
                 ret = ret.eval_ast(self, context)
-            except Exception as e:  # TODO: More fine-grained
+            except Exception as e:  # TODO: More fine-grained error handling
                 if isinstance(e, AssertionError):
                     raise
                 ret = CharExceptions.DataError("Error evaluating " + located_key, exception=e)  # TODO: Keep exception?
         return ret
 
-    def lookup_candidates(self, query: str, *, restricted: bool = None, lists: typing.Iterable = None):
+    def lookup_candidates(self, query: str, *, restricted: bool = None, indices: typing.Iterable = None):
+        """
+        generator that yields all possible candidates for a given query string, implementing our lookup rules.
+        The results are pairs (key, index), where index is an index into CharVersion.lists and key is the
+        lookup key in that list. The results are in order of precendence.
+        It does not check whether the entry exists, just yield candidates.
+
+        the parameter indices is a list of indices where the search is restricted to and also encodes their precendence.
+
+        E.g. if query is "a.b.c" and lists = [0,1], we will yield
+        "a.b.c", 0
+        "a.b.c", 1
+        "a.c", 0
+        "a.c", 1
+        "c", 0
+        "c", 1
+        in that order.
+
+        Users rely on the guarantee that the generator only yields finitely many results.
+
+        :param query: query string
+        :param restricted: controls whether we only search for restricted keys. Default: restricted-ness of query.
+        :param indices: list of indices into CharVersion.lists to restrict the candidates.
+        :return: pairs (key, index) where index is an index into self.lists and key is the key for self.lists[index]
+        """
         assert Regexps.re_key_any.fullmatch(query)
         if restricted is None:
             restricted = not Regexps.re_key_regular.fullmatch(query)
-        if lists is None:
-            lists = range(len(self.lists))
+        if indices is None:
+            indices = range(len(self.lists))
 
-        # length = 3
         split_key = query.split('.')
         keylen = len(split_key)
         assert keylen > 0
@@ -88,8 +142,8 @@ class CharVersion:
                 # In restricted mode, we only yield restricted search keys.
                 # Note that if search_key is not restricted, all further search keys won't be either, so we break.
                 break
-            for j in lists:
-                yield (search_key, j)
+            for j in indices:
+                yield search_key, j
             if main_key == _ALL_SUFFIX:
                 continue
             search_key = ".".join(split_key[0:i] + [_ALL_SUFFIX])
@@ -97,35 +151,44 @@ class CharVersion:
                 # Same as above, but if search_key is not restricted, further search keys may become restricted again.
                 # (This happens if the main_key part causes search_key to be restricted)
                 continue
-            for j in lists:
-                yield (search_key, j)
+            for j in indices:
+                yield search_key, j
         return
 
-    def function_candidates(self, query: str, *, lists: typing.Iterable = None):
+    def function_candidates(self, query: str, *, indices: typing.Iterable = None):
         """
         Obtains a list of candidate positions for a function name lookup for query.upper()
         Returns pairs (key, index into lists)
 
         :param query: function name in lowercase
-        :param lists: iterable of lists to look in. Defaults to all.
+        :param indices: iterable of indices into self.lists to look in. Defaults to all.
         """
         assert Regexps.re_funcname_lowercased.fullmatch(query)
-        if lists is None:
-            lists = range(len(self.lists))
+        if indices is None:
+            indices = range(len(self.lists))
         s = '__fun__.' + query
-        for j in lists:
-            yield (s, j)
+        for j in indices:
+            yield s, j
         s = 'fun.' + query
-        for j in lists:
-            yield (s, j)
+        for j in indices:
+            yield s, j
 
     def has_value(self, pair):
+        """Check whether candidate pair (as output by function_candidates or lookup_candidates) actually exists"""
         return pair[0] in self.lists[pair[1]]
 
     def find_lookup(self, query: str):
+        """
+        yield all candidate pairs (lookup_key, index into self.lists) of candidates that match query according
+        to our lookup rules for database keys a.b.c
+        """
         yield from filter(self.has_value, self.lookup_candidates(query))
 
     def find_function(self, query: str):
+        """
+        yield all candidate pairs (lookup_key, index into self.lists) of candidates that match query according
+        to our lookup rules for function queries FUNCTION
+        """
         yield from filter(self.has_value, self.function_candidates(query))
 
 
@@ -141,8 +204,10 @@ class DataSetTypes:
     PREDEFINED_RULES = "predefined rules"
     CACHE_DATASET = "cache"
 
+
 class UserDataSet(UserDict):
     dict_type = DataSetTypes.USER_INPUT
+
     # Note: We have no startdict, because we want input_data to be consistent.
     def __init__(self, *, description: str = ""):
         super().__init__()  # empty dict
@@ -162,8 +227,10 @@ class UserDataSet(UserDict):
     def get_input(self, key):
         return self.input_data.get(key, None)
 
+
 class CoreRuleDataSet(UserDict):
     dict_type = DataSetTypes.CORE_RULES
+
     def __init__(self, desciption: str = "core rules", startdict: dict = None):
         super().__init__()
         self.description = desciption
@@ -179,5 +246,7 @@ class CoreRuleDataSet(UserDict):
         else:
             self[key] = Parser.input_string_to_value(value)
 
-    def get_input(self, key):
+    # noinspection PyUnusedLocal
+    @staticmethod
+    def get_input(key):
         return None

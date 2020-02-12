@@ -46,8 +46,14 @@ keywords = [
     # 'LAMBDA', # For this, we want type = 'FUN', value = 'LAMBDA'
     'TRUE',
     'FALSE',
-    # LIST and DICT may be implicit keywords, special-cased handled by the tokenizer or parser
+    # LIST and DICT are core functions
+    'GET',
 ]
+
+core_functions = {
+    'LIST': lambda *kw: [*kw],  # rename? Note that python3 list != LIST. python3 list(x) is rather useless for us.
+    'DICT': dict,  # not sure whether this works on all interpreters
+}
 
 _EMPTYSET = frozenset()
 
@@ -503,6 +509,12 @@ class AST_Lookup(AST):
         return data_list.get(self.name)
 
 
+class AST_IndirectLookup(AST):
+    """ Abstract syntax tree object (node) for indirect lookup GET(str), where str is an AST itself
+
+    """
+
+
 class AST_Funcname(AST):
     """ Abstract syntax tree object (leaf) for lookup of function name (e.g. LIST)
         The name of the looked up function is stored in self.funcname.
@@ -524,10 +536,8 @@ class AST_Funcname(AST):
         # TODO: Change? This is only here to simplify debugging
         # We should probably add a list of hard-wired functions somewhere.
         # These may as well parse as Literals of type function.
-        if self.funcname == 'LIST':
-            return lambda *kw: [*kw]
-        if self.funcname == 'DICT':
-            return dict
+        if self.funcname in core_functions:
+            return core_functions[self.funcname]
         return data_list.get(self.funcname, locator=data_list.find_function(self.funcname.lower()))
 
 
@@ -900,8 +910,8 @@ def p_expression_auto(p):
 # exp, *exp, **exp, $name=exp
 # We do not wrap exp (and possibly name) into one of 4 different AST_FOO - types.
 # The reason is that eval_ast could not do anything meaningful:
-# If exp = [1, 2], then the corresponding hypothetical AST_STARRED_EXP(exp).eval_ast
-# must NOT naturally return the tuple 1, 2, since then for a function g(a,b) with
+# If exp = [1, 2], then the corresponding hypothetical AST_STARRED_EXP(exp).eval_ast(...)
+# must NOT return the tuple 1, 2, since then for a function g(a,b) with
 # arguments a,b, g(*exp) would bind a to the tuple (1,2) and leave b unbound...
 # In fact, *exp is not a valid Python expression in most contexts.
 # The unpacking and the function call have to be handled simultaneously and we just mark the arguments.
@@ -916,12 +926,14 @@ _FUNARG_STARSTAREXP = '**expression'  # f(**dict)
 _FUNARG_NAMEVAL = 'named argument'  # f(name = x)
 
 
+# noinspection PySingleQuotedDocstring
 def p_argument_exp(p):
     "argument : expression"
     p[0] = p[1]
     p[0].argtype = _FUNARG_EXP
 
 
+# noinspection PySingleQuotedDocstring
 def p_argument_listexp(p):
     "argument : '*' expression"
     p[0] = p[2]
@@ -929,6 +941,7 @@ def p_argument_listexp(p):
     p[0].typedesc = '*' + p[0].typedesc  # this creates an instance variable
 
 
+# noinspection PySingleQuotedDocstring
 def p_argument_dictexp(p):
     "argument : '*' '*' expression"
     p[0] = p[3]
@@ -936,6 +949,7 @@ def p_argument_dictexp(p):
     p[0].typedesc = '**' + p[0].typedesc  # this creates an instance variable
 
 
+# noinspection PySingleQuotedDocstring
 def p_argument_nameval(p):
     "argument : ARGNAME '=' expression"
     p[0] = p[3]
@@ -946,7 +960,8 @@ def p_argument_nameval(p):
 
 def p_arglist(p):
     """arglist :
-               | arglist_nonempty"""
+               | arglist_nonempty
+               | arglist_nonempty ','"""
     if len(p) == 1:
         p[0] = []
     else:
@@ -962,6 +977,7 @@ def p_arglist_nonempty(p):
         p[0] = p[1] + [p[3]]
 
 
+# noinspection PySingleQuotedDocstring
 def p_function_call(p):
     "expression : expression '(' arglist ')'"
     # keyword arguments must come after positional arguments :
@@ -974,6 +990,7 @@ def p_function_call(p):
     p[0] = AST_FunctionCall(p[1], *p[3])
 
 
+# noinspection PySingleQuotedDocstring
 def p_getitem(p):
     "expression : expression '[' expression ']'"
     p[0] = AST_GetItem(p[1], p[3])
@@ -986,26 +1003,31 @@ _ARGTYPE_STARARG = 'Rest of Positional Arguments'  # def f(*arg)
 _ARGTYPE_KWARGS = 'Rest of Keyword Arguments'  # def (f**kwargs)
 
 
+# noinspection PySingleQuotedDocstring
 def p_declarg_name(p):
     "declarg : ARGNAME"
     p[0] = (p[1], _ARGTYPE_NORMAL)
 
 
+# noinspection PySingleQuotedDocstring
 def p_declarg_defaulted_name(p):
     "declarg : ARGNAME '=' expression"
     p[0] = (p[1], _ARGTYPE_DEFAULT, p[3])
 
 
+# noinspection PySingleQuotedDocstring
 def p_declarg_pos_end(p):
     "declarg : '*'"
     p[0] = (None, _ARGTYPE_STAR)
 
 
+# noinspection PySingleQuotedDocstring
 def p_declarg_pos_rest(p):
     "declarg : '*' ARGNAME"
     p[0] = (p[2], _ARGTYPE_STARARG)
 
 
+# noinspection PySingleQuotedDocstring
 def p_declarg_kw_rest(p):
     "declarg : '*' '*' ARGNAME"
     p[0] = (p[3], _ARGTYPE_KWARGS)
@@ -1031,10 +1053,12 @@ def p_declarglist_nonempty(p):
         p[0] = p[1] + [p[3]]
 
 
+# noinspection PySingleQuotedDocstring
 def p_functiondef(p):
     "expression : FUN '[' declarglist ']' '(' expression ')'"
     args = p[3]
-    # Check validity of argument list : There are restrictions on the order of argument types (kw-arguments after positional arguments etc)
+    # Check validity of argument list : There are restrictions on the order of argument types
+    # (kw-arguments after positional arguments etc
     seen_default = False
     seen_restkw = False
     seen_end = False
