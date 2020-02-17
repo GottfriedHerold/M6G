@@ -10,7 +10,7 @@
 
     The usual workflow is that an input string such as "11 + 5" is first tokenized by ply.lex into a list of tokens
     [("INT",11), ("+","+"), ("INT", 5)].
-    Next (the actual implementation of ply probably interleaves tokenizing and parsing in some way),
+    Next (the actual implementation of PLY interleaves tokenizing and parsing in some way),
     ply.yacc generates an abstract syntax tree from this list of tokens.
     In the given example, the tree would have a root node for "Addition operation" with 2 child leaves
     encoding "integer literal 11" and "integer literal 5".
@@ -26,7 +26,7 @@ import ply.yacc as yacc
 # docstrings semantics) does not work if the regexps is an import.
 from ply.lex import TOKEN
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
-from .CharExceptions import DataError, CGParseException
+from .CharExceptions import DataError, CGParseException, CGEvalException
 
 # We need CharVersion for type annotations. Unfortunately, this would create circular imports, which are OK only
 # while statically type-checking, but not otherwise.
@@ -511,8 +511,23 @@ class AST_Lookup(AST):
 
 class AST_IndirectLookup(AST):
     """ Abstract syntax tree object (node) for indirect lookup GET(str), where str is an AST itself
-
+        This is different from AST_Lookup due to error handling and where in the processing parsing occurs.
     """
+    typedesc = 'Indirect Lookup'
+    needs_env = _EMPTYSET
+
+    def __init__(self, arg: AST):
+        assert isinstance(arg, AST)
+        super().__init__(needs_env=self.__class__.needs_env)
+        self.indirect_arg = arg
+
+    def eval_ast(self, data_list, context):
+        name = self.indirect_arg.eval_ast(data_list, context)
+        if not isinstance(name, str):
+            raise CGEvalException('Argument to GET does not evaluate to a string')
+        if not re_key_any.fullmatch(name):
+            raise CGEvalException('Arguemnt' + name + 'to GET is not a valid key')
+        return data_list.get(name)
 
 
 class AST_Funcname(AST):
@@ -885,6 +900,12 @@ def p_expression_funname(p):
 def p_expression_name(p):
     "expression : LOOKUP"
     p[0] = AST_Lookup(p[1])
+
+
+# noinspection PySingleQuotedDocstring
+def p_expression_get(p):
+    "expression : GET '(' expression ')'"
+    p[0] = AST_IndirectLookup(p[3])
 
 
 # noinspection PySingleQuotedDocstring

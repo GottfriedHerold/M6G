@@ -191,6 +191,8 @@ def test_lookups(empty3cv: 'CharVersion.CharVersion'):
     L2.set_from_string('xxx', '=b + b + 1')
     x = empty3cv.get('yyy.xxx')
     assert x == 25
+    L2.set_from_string('indirect', '=GET("b")')
+    assert empty3cv.get('indirect') == 12
     L1.set_from_string('x.c', '=$AUTO')
     L2.set_from_string('x.c', '=$AUTO')
     L2.set_from_string('c', '=LIST($QUERY,$NAME)')
@@ -202,6 +204,8 @@ def test_lookups(empty3cv: 'CharVersion.CharVersion'):
     assert empty3cv.get('y.c') == ['y.c', 'c']
     assert empty3cv.get('x.c') == ['x.c', 'c']
     assert empty3cv.get('x.y.c') == ['x.c', 'c']
+    L1.set_from_string('anotherindirect', '=GET("x." + "y.c")')
+    assert empty3cv.get('anotherindirect') == ['x.c', 'c']
     L3.set_from_string('__fun__.f', "=FUN[$a]($a * $a)")
     L3.set_from_string('__fun__.g', '=__fun__.f')
     L3.set_from_string('fun.f', "10")
@@ -214,3 +218,7 @@ def test_lookups(empty3cv: 'CharVersion.CharVersion'):
     assert empty3cv.get('fff') == 9
     L1.set_from_string('fff', '=G(3)')
     assert empty3cv.get('fff') == 9
+    L1.set_from_string('lookup', '=FUN[$a](GET($a))')
+    lookup = empty3cv.get('lookup')
+    assert lookup('fff') == 9
+    assert lookup('x.y.c') == ['x.c', 'c']
