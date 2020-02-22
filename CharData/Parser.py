@@ -23,7 +23,7 @@ import ply.lex as lex
 import ply.yacc as yacc
 # ply.lex.TOKEN is a decorator to associate regexps with tokenizer rules.
 # The "normal" way is to set a docstring to the regexp, which (apart from all the qualms I have about giving
-# docstrings semantics) does not work if the regexps is an import.
+# docstrings semantics) does not work if the regexp is an import such as re_key_any.
 from ply.lex import TOKEN
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
 from .CharExceptions import DataError, CGParseException, CGEvalException
@@ -69,8 +69,8 @@ special_args = {
     # In particular, for TOKEN == 'ARGNAME' or 'SPECIALARG',
     # Value determines which variable is looked up from the context dict
     # in eval_ast, i.e. under which name the binding is supplied by the external caller.
-    # The distincion between SPECIALARG and ARGNAME tokens is only that SPECIALARG tokens can not be used to
-    # introduce new variable names in lambdas' variable lists.
+    # The distinction between SPECIALARG and ARGNAME tokens is only that SPECIALARG tokens can not be used to
+    # introduce new variable names in lambda definition's variable lists.
     # Values for these special arguments should begin with a capital letter in order to be from a set of names disjoint
     # from internal user-provided variables used in lambdas. They also need to be in _ALLOWED_SPECIAL_ARGS below in
     # order to escape as free variables.
@@ -86,7 +86,7 @@ special_args = {
     # It may differ due to lookup rules.
     'QUERY': ('SPECIALARG', 'Query'),
     'NAME': ('SPECIALARG', 'Name'),  # $Name is set by the caller. It is supposed to be set to the database key which
-    # holds this entry.
+    # holds the entry.
 }
 
 # CONTINUE_LOOKUP is a special environmental variable that is used internally in the lookup procedure.
@@ -100,6 +100,7 @@ CONTINUE_LOOKUP = 'Continue'
 # Such escaping variables must then be set by the caller when evaluating the parse result.
 _ALLOWED_SPECIAL_ARGS = frozenset({'Name', 'Query', CONTINUE_LOOKUP})
 
+# PLY looks for a variable named tokens (and literals) to determine the set of tokens in its parsing rules later.
 tokens = [
              'STRING',  # Quote - enclosed string
              'IDIV',  # // (integral division, as opposed to /, which gives floats)
@@ -136,7 +137,7 @@ tokens = [
 # noinspection PySingleQuotedDocstring
 def t_STRING(token):  # strings delimited by either ' or " (left and right delimeters must match)
     r"(?:'[^']*')|" r'(?:"[^"]*")'  # Allow either ' or " as delimeters (Python-like)
-    token.value = token.value[1:-1]  # strip the quotation marks already by the lexer
+    token.value = token.value[1:-1]  # strip the quotation marks already at the lexer stage
     return token
 
 
@@ -212,9 +213,9 @@ t_GTE = r">="
 # literals will generate single literal tokens
 literals = "+-*/%()[],<>="
 # Note: While we have [] for indexing into iterables, membership access via "." is missing intentionally!
-# In fact, allowing this would give remote code exectution. The issue is that python objects carry references to
-# their defintion context via __globals__, __module__ etc. and these would become accessible.
-# If the signing key for the session cookies leak, an attacker can create forged cookies.
+# In fact, allowing this would give remote code execution. The issue is that python objects carry references to
+# their definition context via __globals__, __module__ etc. and these would become accessible.
+# If the signing key for the session cookies leaks, an attacker can create forged cookies.
 # Since cookies contain (supposedly signed) pickled python objects, an attacker can hijack pickle for remote code
 # execution.
 
@@ -234,8 +235,8 @@ lexer = lex.lex()
 # NOTE: The result of parsing must be purely a function of the input string. There is no dependency on
 # other data sources for the references etc. These dependencies only come into play when actually evaluating.
 
-# To actually evaluate the AST instance T, T.eval_ast(data_list, context)
-# data_list is the list of data sources, used to evaluate references.
+# To actually evaluate the AST instance T, call T.eval_ast(data_list, context)
+# data_list is the list of data sources, used to evaluate (database) references.
 # context is a dict for variables $arg = value that may appear.
 # External callers should usually only set $Name and $Query.
 # (context is mostly used internally to implement lambdas INSIDE ASTs. Externally set args are capitalized)
@@ -245,9 +246,9 @@ lexer = lex.lex()
 # For a function call f(a,b,c), we have an AST_FunctionCall node with children f,a,b,c (in that order), where
 # f,a,b,c are ASTs themselves of appropriate types.
 # For a function call f(a, *b,**c, $name  = d), we have an AST_FunctionCall node with children a,b,c,d.
-# The subtypes of AST of a,b,c do not tell that this a *,** or namebind-expression:
-# This information is *not* part of the AST's tree structure.
-# Rather, a,b,c,d have an object variable a.argtype and d.argname = "name".
+# The subclass of AST of a,b,c do not tell that this a *,** or namebind-expression:
+# This information is *not* part of the AST's tree structure. (there is no AST subclass for "star-expression" etc.)
+# Rather, a,b,c,d have an object variable a.argtype denoting "starred-ness" and optionally d.argname = "name".
 
 # For a function definition FUN[$a,$b,*$c]($a+$b), we have an AST_LAMBDA. AST_Lambdas always have exactly 2 children:
 # The right child is an AST for the function body ($a+$b in this example). The left child is *not* an AST, but
@@ -290,7 +291,7 @@ class AST:
         evaluates the ast within the given context.
         IMPORTANT: eval_ast can return lambdas which may capture data_list and context possibly *by reference*.
         For data_list, we only ever hand it through, but for context, do not rely on stable behaviour and never modify
-        a dict after it is passed to eval_ast for the lifetime of the result.
+        a dict after it is passed to eval_ast for the lifetime of the result as an external caller.
 
         :param data_list: List of data sources used for lookups. Of type CharVersion or None.
         :param context: Dict of variables used in evaluations. External callers need to supply those in self.needs_env.
@@ -459,6 +460,9 @@ class AST_Not(AST):
         return not arg
 
 
+# COND(condition, a, b) == condition ? a : b in the C programming language and encodes an if.
+# except for the error handling: if cond causes an error, the result is that error.
+# Otherwise, only one of a and b is evaluated (so an error in the non-evaluated branch is ignored)
 class AST_Cond(AST):
     typedesc = 'COND'
 
@@ -526,7 +530,7 @@ class AST_IndirectLookup(AST):
         if not isinstance(name, str):
             raise CGEvalException('Argument to GET does not evaluate to a string')
         if not re_key_any.fullmatch(name):
-            raise CGEvalException('Arguemnt' + name + 'to GET is not a valid key')
+            raise CGEvalException('Argument ' + name + ' to GET is not a valid key')
         return data_list.get(name)
 
 
@@ -548,9 +552,8 @@ class AST_Funcname(AST):
         return self.typedesc + '(' + str(self.funcname) + ')'
 
     def eval_ast(self, data_list, context):
-        # TODO: Change? This is only here to simplify debugging
-        # We should probably add a list of hard-wired functions somewhere.
-        # These may as well parse as Literals of type function.
+        # We might actually parse core_functions as Literals (of type function) rather than doing this at
+        # the evaluation stage. Note, however, that this would make serializing ASTs more difficult.
         if self.funcname in core_functions:
             return core_functions[self.funcname]
         return data_list.get(self.funcname, locator=data_list.find_function(self.funcname.lower()))
