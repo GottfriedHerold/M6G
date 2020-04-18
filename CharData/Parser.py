@@ -643,7 +643,7 @@ class AST_Lambda(AST):
         """
         construct a new lambda
         :param expected_args: list of tuples (name, type [,default-value]) for the arguments.
-                              type encodes the *-ed-ness and wether a default is present
+                              type encodes the *-ed-ness and whether a default is present
         :param body: function body
         """
 
@@ -768,7 +768,7 @@ def p_root(p):
     "root_expression : expression"
     p[0] = p[1]
     if not p[0].needs_env <= _ALLOWED_SPECIAL_ARGS:  # <= means subset here.
-        raise CGParseException("Unbound variables $" + " $".join(_ALLOWED_SPECIAL_ARGS - p[0].needs_env))
+        raise CGParseException("Unbound variables $" + ", $".join(_ALLOWED_SPECIAL_ARGS - p[0].needs_env))
 
 
 # noinspection PySingleQuotedDocstring

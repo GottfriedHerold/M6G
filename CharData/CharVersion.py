@@ -23,7 +23,6 @@ from . import CharExceptions
 
 _ALL_SUFFIX = "_all"
 
-
 class CharVersion:
     # TODO: add arguments
     def __init__(self, *, creation_time=None, description: str = "", initial_lists: list = None):
@@ -44,7 +43,7 @@ class CharVersion:
         """
         Obtain an element from the current CharVersion database by query name.
 
-        locator should be usually be None. It encodes the list or a generator of all results that match the query
+        locator should usually be None. It encodes the list or a generator of all results that match the query
          name according to our lookup rules. This is overridden to implement $AUTO(QUERY) calls.
 
         :param query: The key to query for.
@@ -103,10 +102,10 @@ class CharVersion:
         """
         generator that yields all possible candidates for a given query string, implementing our lookup rules.
         The results are pairs (key, index), where index is an index into CharVersion.lists and key is the
-        lookup key in that list. The results are in order of precendence.
+        lookup key in that list. The results are in order of precedence.
         It does not check whether the entry exists, just yield candidates.
 
-        the parameter indices is a list of indices where the search is restricted to and also encodes their precendence.
+        the parameter indices is a list of indices where the search is restricted to and also encodes their precedence.
 
         E.g. if query is "a.b.c" and lists = [0,1], we will yield
         "a.b.c", 0
