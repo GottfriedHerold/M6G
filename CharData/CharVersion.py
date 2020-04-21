@@ -58,24 +58,30 @@ class CharVersion:
             # print('Calling with ' + query + ' locator= ' + str(locator))
 
         # brittle: whether get mutates the input locator depends on the type of locator.
-        # Namely, if locator is an iterator, it does. If it is a list, it does not.
+        # Namely, if locator is an iterator, it does. If locator is a list, it does not.
         # get is used with both cases and we actually NEED that guarantee sometimes.
 
         # More precisely, locator may be a list or a generator that holds the lookup matches for the query.
-        # In the generator case, it === locator and the following try...except block will forward the generator
-        # once (unless empty) to find the first match and modify it and locator.
+        # In the generator case, locator_iterator == locator and the following try...except block will forward the
+        # generator once (unless empty) to find the first match and modify both locator_iterator and locator.
         # If Parser.CONTINUE_LOOKUP is set in ret.needs_env, the remaining matches
         # are copied into a list such that eval_ast can recursively call get with locator = remaining list.
-        # In case locator is a list, it != locator: it is just an index into locator and the try...except block
-        # will not modify locator. This is important because eval_ast may call get multiple times with the same
-        # remaining list.
-        it = iter(locator)
+        # In case locator is a list, locator_iterator != locator: locator_iterator is just an index into locator
+        # and the try...except block will not modify locator.
+        # This is important because eval_ast may call get multiple times with the same remaining list.
+        locator_iterator = iter(locator)
+
+        # TODO: Only copy into list if there are >=2 occurences of $AUTO
+        # TODO: Either create a buffered custom object (rather than a list)
+        #       and/or just evaluate $AUTOs once per argument and pass them directly rather than CONTINUE_LOOKUP
+        #       Note that this becomes complicated for arbitrary $AUTO - arguments
+        #       and furthermore $AUTO is always evaluated even if all occurrences in the AST are in dead code.
 
         try:
             # where is the index of the list where we found the match, located_key is the key within that list.
             # Often, located_key == query, but located_key may be the fallback key that was actually found according
             # to the lookup rules.
-            located_key, where = next(it)
+            located_key, where = next(locator_iterator)
         except StopIteration:
             return CharExceptions.DataError(query + " not found")
 
@@ -87,7 +93,7 @@ class CharVersion:
             needs_env = ret.needs_env
             context = {'Name': located_key, 'Query': query}
             if Parser.CONTINUE_LOOKUP in needs_env:
-                context[Parser.CONTINUE_LOOKUP] = list(it)
+                context[Parser.CONTINUE_LOOKUP] = list(locator_iterator)
                 # print('evaluating with context= ' + str(context))
             assert needs_env <= context.keys()
             try:
