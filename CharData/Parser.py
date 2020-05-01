@@ -115,6 +115,7 @@ tokens = [
              'ARGNAME',  # $argument
              'SPECIALARG',  # $Argument
              'AUTO',  # $A[uto] - gets default value (i.e. continues lookup).
+             'KWARG',  # Keyword argument in function call
          ] + keywords
 
 
@@ -981,6 +982,13 @@ def p_argument_nameval(p):
     p[0].namebind = p[1]
     p[0].typedesc = p[0].typedesc + ' bound to ' + p[0].namebind  # += actually would work (which I find strange)
 
+# noinspection PySingleQuotedDocstring
+def p_argument_nameval_as_string(p):
+    "argument : STRING '=' expression"
+    p[0] = p[3]
+    p[0].argtype = _FUNARG_NAMEVAL
+    p[0].namebind = p[1]
+    p[0].typedesc = p[0].typedesc + ' bound to ' + p[0].namebind
 
 def p_arglist(p):
     """arglist :

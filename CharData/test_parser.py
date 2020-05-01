@@ -212,6 +212,12 @@ def test_lookups(empty3cv: 'CharVersion.CharVersion'):
     L2.set_from_string('fun.h', '=FUN[$b]($b + 100)')
     L1.set_from_string('fff', '=H(3)')
     assert empty3cv.get('fff') == 103
+    L1.set_from_string('fff', '=H($b=4)')
+    assert empty3cv.get('fff') == 104
+    L1.set_from_string('fff', '=H($c=4)')
+    assert isinstance(empty3cv.get('fff'), CharExceptions.DataError)
+    L1.set_from_string('fff', '=H("b"=5)')
+    assert empty3cv.get('fff') == 105
     # noinspection PyUnusedLocal
     x = empty3cv.get('__fun__.f')
     L1.set_from_string('fff', '=F(3)')
