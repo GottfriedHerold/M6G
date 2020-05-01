@@ -91,9 +91,9 @@ special_args = {
 
 # CONTINUE_LOOKUP is a special environmental variable that is used internally in the lookup procedure.
 # (i.e. there is a special variable $Continue that is reserved for internal usage.)
-# This value must not be in the special_args dict.
 # It can not be used as a variable in lambdas (enforced by Continue being uppercase).
 CONTINUE_LOOKUP = 'Continue'
+
 # Parse results are abstract syntax trees, which may contain lambdas and (bound or free) variables $foo.
 # Every tree node knows which variables are free in its subtree.
 # In a valid parse, only Elements from _ALLOWED_SPECIAL_ARGS are allowed to "escape" as free variables at the root node.

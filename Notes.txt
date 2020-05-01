@@ -2,3 +2,5 @@ Dependencies:
 ply
 Django
 pytest
+
+TODO: Password restrictions?
