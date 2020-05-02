@@ -44,18 +44,23 @@ keywords = [
     'NOT',
     'FUN',  # alternative: LAMBDA is also recognized. This is handled in the tokenizer code, not in this list.
     # 'LAMBDA', # For this, we want type = 'FUN', value = 'LAMBDA'
-    'TRUE',
-    'FALSE',
+    # 'TRUE',
+    # 'FALSE',
     # LIST and DICT are core functions
     'GET',
 ]
 
-core_functions = {
-    'LIST': lambda *kw: [*kw],  # rename? Note that python3 list != LIST. python3 list(x) is rather useless for us.
-    'DICT': dict,  # not sure whether this works on all interpreters
-}
-
 _EMPTYSET = frozenset()
+
+core_constants = {
+    'LIST': list,
+    'DICT': dict,  # not sure whether this works on all interpreters
+    'EMPTYSET': _EMPTYSET,
+    'True': True,
+    'False': False,
+    'TRUE': True,
+    'FALSE': False,
+}
 
 # tokens of the form $Name (with a literal $), where Name starts with a capital letter will be recognized by the lexer
 # iff(!) Name.upper() is in the special_args dict. Note that $foo (for lowercase foo) is recognized as a variable with
@@ -115,7 +120,7 @@ tokens = [
              'ARGNAME',  # $argument
              'SPECIALARG',  # $Argument
              'AUTO',  # $A[uto] - gets default value (i.e. continues lookup).
-             'KWARG',  # Keyword argument in function call
+             'CORECONSTANT',  # hard-coded constants (which may be of type function)
          ] + keywords
 
 
@@ -167,7 +172,9 @@ def t_INT(token):
 # noinspection PySingleQuotedDocstring
 def t_WORD(token):
     r"[$]?[a-z._A-Z]+"  # We match any combination of letters, dots and underscores that optionally starts with $
-    if re_special_arg.fullmatch(token.value):  # r"[$][A-Z][a-zA-Z_]*" : Tokens of the Form $Foo or $FOO
+    if token.value in core_constants:
+        token.type = 'CORECONSTANT'
+    elif re_special_arg.fullmatch(token.value):  # r"[$][A-Z][a-zA-Z_]*" : Tokens of the Form $Foo or $FOO
         # We only accept if FOO is from the special_args dict above, which contains (type,value) as special_args['FOO']
         try:
             spec = special_args[token.value[1:].upper()]  # [1:] strips the leading $
@@ -212,7 +219,7 @@ t_LTE = r"<="
 t_GTE = r">="
 
 # literals will generate single literal tokens
-literals = "+-*/%()[],<>="
+literals = "+-*/%()[],<>={}:"
 # Note: While we have [] for indexing into iterables, membership access via "." is missing intentionally!
 # In fact, allowing this would give remote code execution. The issue is that python objects carry references to
 # their definition context via __globals__, __module__ etc. and these would become accessible.
@@ -553,12 +560,23 @@ class AST_Funcname(AST):
         return self.typedesc + '(' + str(self.funcname) + ')'
 
     def eval_ast(self, data_list, context):
-        # We might actually parse core_functions as Literals (of type function) rather than doing this at
-        # the evaluation stage. Note, however, that this would make serializing ASTs more difficult.
-        if self.funcname in core_functions:
-            return core_functions[self.funcname]
         return data_list.get(self.funcname, locator=data_list.find_function(self.funcname.lower()))
 
+# We might actually parse core_constants as Literals (of type e.g. function) rather than doing this at
+# the evaluation stage. Note, however, that this would make serializing ASTs more difficult.
+class AST_CoreConstant(AST):
+    typedesc = 'Core Constant'
+    needs_env = _EMPTYSET
+
+    def __init__(self, name: str):
+        super().__init__(needs_env=self.__class__.needs_env)
+        self.name = name
+
+    def __str__(self):
+        return self.typedesc + '(' + str(self.name) + ')'
+
+    def eval_ast(self, data_list, context):
+        return core_constants[self.name]
 
 class AST_Argname(AST):
     """ Abstract syntax tree object (leaf) for variables (e.g. $a appearing in a function FUN[$a]($a*$a) or $Name.
@@ -744,6 +762,49 @@ class AST_Lambda(AST):
 
         return fun
 
+class AST_List(AST):
+    typedesc = 'List'
+    # default init does The Right Thing (TM): self.child is a tuple of child AST objects.
+    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
+        ret = []
+        for c in self.child:
+            c_eval = c.eval_ast(data_list, context)
+            if isinstance(c_eval, DataError):
+                return c_eval
+            ret.append(c_eval)
+        return ret
+
+class AST_Dict(AST):
+    typedesc = 'Dict'
+    # default init does The Right Thing (TM)
+    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
+        assert len(self.child) % 2 == 0
+        ret = {}
+        it = iter(self.child)
+        while True:
+            try:
+                c_kw = next(it)
+            except StopIteration:
+                break
+            c_kw = c_kw.eval_ast(data_list, context)
+            if isinstance(c_kw, DataError):
+                return c_kw
+            c_val = next(it).eval_ast(data_list, context)
+            if isinstance(c_val, DataError):
+                return c_val
+            ret[c_kw] = c_val
+        return ret
+
+class AST_Set(AST):
+    typedesc = 'Set'
+    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
+        ret = []
+        for c in self.child:
+            c_eval = c.eval_ast(data_list, context)
+            if isinstance(c_eval, DataError):
+                return c_eval
+            ret.append(c_eval)
+        return frozenset(ret)
 
 start = 'root_expression'  # start is used by PLY yacc to determine the BNF roof.
 
@@ -785,17 +846,21 @@ def p_expression_literal(p):
                   | INT"""
     p[0] = AST_Literal(p[1])
 
+# noinspection PySingleQuotedDocstring
+def p_coreconstant(p):
+    "expression : CORECONSTANT"
+    p[0] = AST_CoreConstant(p[1])
 
 # noinspection PySingleQuotedDocstring
-def p_expression_true(p):
-    "expression : TRUE"
-    p[0] = AST_Literal(True)
+# def p_expression_true(p):
+#     "expression : TRUE"
+#     p[0] = AST_Literal(True)
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_false(p):
-    "expression : FALSE"
-    p[0] = AST_Literal(False)
+# def p_expression_false(p):
+#     "expression : FALSE"
+#     p[0] = AST_Literal(False)
 
 
 # noinspection PySingleQuotedDocstring
@@ -1008,6 +1073,44 @@ def p_arglist_nonempty(p):
     else:
         p[0] = p[1] + [p[3]]
 
+def p_expressionlist_nonempty(p):
+    """expressionlist_nonempty : expression
+                               | expressionlist_nonempty ',' expression"""
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[3]]
+
+def p_list(p):
+    """expression : '[' ']'
+                  | '[' expressionlist_nonempty ']'
+                  | '[' expressionlist_nonempty ',' ']'"""
+    if len(p) == 3:
+        p[0] = AST_List()
+    else:
+        p[0] = AST_List(*p[2])
+
+def p_dictlist_nonempty(p):
+    """dictlist_nonempty : expression ':' expression
+                         | dictlist_nonempty ',' expression ':' expression"""
+    if len(p) == 4:
+        p[0] = [p[1], p[3]]
+    else:
+        p[0] = p[1] + [p[3], p[5]]
+
+def p_dict(p):
+    """expression : '{' '}'
+                  | '{' dictlist_nonempty '}'
+                  | '{' dictlist_nonempty ',' '}'"""
+    if len(p) == 3:
+        p[0] = AST_Dict()
+    else:
+        p[0] = AST_Dict(*p[2])
+
+def p_set(p):
+    """expression : '{' expressionlist_nonempty '}'
+                  | '{' expressionlist_nonempty ',' '}'"""
+    p[0] = AST_Set(*p[2])
 
 # noinspection PySingleQuotedDocstring
 def p_function_call(p):

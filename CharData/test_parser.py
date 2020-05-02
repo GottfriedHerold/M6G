@@ -155,7 +155,7 @@ def test_index():
 def test_lambdas():
     assert evp("FUN[$a]($a+1)(2)") == 3
     assert evp("LAMBDA[$a]($a+1)(10,)") == 11
-    f = evp("FUN[$a, $b = 1+2, *$c, $d, $e = 5, $f, **$kwargs](LIST($a, $b, $c, $d, $e, $f, $kwargs)) ")
+    f = evp("FUN[$a, $b = 1+2, *$c, $d, $e = 5, $f, **$kwargs]([$a, $b, $c, $d, $e, $f, $kwargs]) ")
     assert f(1, 2, 3, 4, d=4, f=12, g=8, h=10) == [1, 2, (3, 4), 4, 5, 12, {'g': 8, 'h': 10}]
 
     curry = evp("FUN[$fun, $first](FUN[$second]($fun($first,$second) ))")
@@ -165,12 +165,16 @@ def test_lambdas():
     assert curry(mult, 4)(5) == 20
     assert curry(curry, mult2)(4)(5) == 20
 
-    g = evp("FUN[$a, $c, $d](FUN[$a, $b = $a, $c=$c](LIST($a,$b,$c,$d))  )  ")
+    g = evp("FUN[$a, $c, $d](FUN[$a, $b = $a, $c=$c]([$a,$b,$c,$d])  )  ")
     f = g(1, 2, 3)
     assert f(4) == [4, 4, 2, 3]
     assert f(5) == [5, 5, 2, 3]
     assert f(0, 1) == [0, 1, 2, 3]
     assert f(0, 1, 10) == [0, 1, 10, 3]
+
+def test_list():
+    assert evp("[1]") == [1]
+    assert evp("[1+1] + [2+2,]") == [2, 4]
 
 
 def test_lookups(empty3cv: 'CharVersion.CharVersion'):
@@ -195,7 +199,7 @@ def test_lookups(empty3cv: 'CharVersion.CharVersion'):
     assert empty3cv.get('indirect') == 12
     L1.set_from_string('x.c', '=$AUTO')
     L2.set_from_string('x.c', '=$AUTO')
-    L2.set_from_string('c', '=LIST($QUERY,$NAME)')
+    L2.set_from_string('c', '=[$QUERY,$NAME]')
     assert empty3cv.get('c') == ['c', 'c']
     assert empty3cv.get('y.c') == ['y.c', 'c']
     L1.set_from_string('c', '=$AUTO')
