@@ -6,6 +6,7 @@
     We use PLY (Python lex/yacc) to build the parser.
     Note that PLY makes extensive use of introspection, i.e. PLY analyzes the function definitions in this Parser.py
     file and looks for functions whose names match certain patterns and extracts lexer/parser rules from its docstrings.
+
     In particular, function names and docstrings carry actual semantics in this file!
 
     The usual workflow is that an input string such as "11 + 5" is first tokenized by ply.lex into a list of tokens
@@ -44,13 +45,12 @@ keywords = [
     'NOT',
     'FUN',  # alternative: LAMBDA is also recognized. This is handled in the tokenizer code, not in this list.
     # 'LAMBDA', # For this, we want type = 'FUN', value = 'LAMBDA'
-    # 'TRUE',
-    # 'FALSE',
-    # LIST and DICT are core functions
     'GET',
 ]
 
 _EMPTYSET = frozenset()
+
+# Python constants (dict is a constant of type callable) that are exposed as additional keywords.
 
 core_constants = {
     'LIST': list,
@@ -65,7 +65,8 @@ core_constants = {
 # tokens of the form $Name (with a literal $), where Name starts with a capital letter will be recognized by the lexer
 # iff(!) Name.upper() is in the special_args dict. Note that $foo (for lowercase foo) is recognized as a variable with
 # name foo (used in lambdas); special_args should be used for similar purposes, in particular for things that behave
-# like environmental variables that need to be set externally by the caller when actually evaluating.
+# like environmental variables that need to be set externally by the caller when actually evaluating. Or more generally,
+# things that are in some sense context-dependent.
 
 special_args = {
     # keys are what is recognized as $Key (after uppercasing, so keys need to be capitalized here).
@@ -124,11 +125,11 @@ tokens = [
          ] + keywords
 
 
-# PLY.lex generates tokenizer rules from definitions with names t_foo(token) and special variable literals.
+# PLY.lex generates tokenizer rules from definitions with names t_foo(token) and the special variable named literals.
 # token.type determines the type of token we have (defaults to "foo" in t_foo definitions unless foo is a special name),
 # which is what our parser rules below refer to.
 # token.value is the actual payload of the token. (e.g. the actual number in a token of type "number"). Defaults to
-# the actual substring of the input that generated the match.
+# the actual substring of the input that generated the regexp match.
 # Tokenizer matches are determined by regular expressions given by the docstring or @TOKEN decorator.
 # token.type must be either a literal or from the tokens list above. t_foo(token) function defs must return the
 # (possibly modified) token or None or raise an exception. If None is returned, the input substring is consumed without
@@ -663,7 +664,7 @@ class AST_Lambda(AST):
         construct a new lambda
         :param expected_args: list of tuples (name, type [,default-value]) for the arguments.
                               type encodes the *-ed-ness and whether a default is present
-        :param body: function body
+        :param body: function body as AST
         """
 
         # needs_env determines the set of free variables. This is the set of variables that occur in the body, but are
@@ -675,6 +676,7 @@ class AST_Lambda(AST):
         # (In eval_ast, we assign the new local context from left to right and evaluate defaults with the new
         # local context)
         # $c = $c will default the inner $c to the outer $c
+        # Note that special args like $Name, $Query in the body or as default args refer to the definition context.
         needs_env = set(body.needs_env)
         for arg in reversed(expected_args):
             needs_env.discard(arg[0])  # arg[0] may be None. In this case, this does nothing.
