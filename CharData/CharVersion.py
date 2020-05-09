@@ -13,6 +13,8 @@ finally S0{_all}, S1{_all}, ...
 We take the first match we find and return an arbitrary python object.
 """
 
+from typing import TYPE_CHECKING
+
 from datetime import datetime, timezone
 from collections import UserDict
 import typing
@@ -20,6 +22,7 @@ import typing
 from . import Regexps
 from . import Parser
 from . import CharExceptions
+from collections.abc import MutableMapping
 
 _ALL_SUFFIX = "_all"
 
@@ -39,7 +42,7 @@ class CharVersion:
             self.lists = initial_lists
         return
 
-    def get(self, query, *, locator: typing.Iterable = None):
+    def get(self, query, *, locator: typing.Iterable = None, default=None):
         """
         Obtain an element from the current CharVersion database by query name.
 
@@ -48,6 +51,7 @@ class CharVersion:
 
         :param query: The key to query for.
         :param locator: (only used for $AUTOQUERY calls)
+        :param default: Default value returned if query is not found. If default==None, returns an error.
         :return: database entry. DataError exception if key is not found.
         """
         if locator is None:
@@ -83,7 +87,9 @@ class CharVersion:
             # to the lookup rules.
             located_key, where = next(locator_iterator)
         except StopIteration:
-            return CharExceptions.DataError(query + " not found")
+            if default is None:
+                return CharExceptions.DataError(query + " not found")
+            return default
 
         ret = self.lists[where][located_key]
 
@@ -195,6 +201,91 @@ class CharVersion:
         to our lookup rules for function queries FUNCTION
         """
         yield from filter(self.has_value, self.function_candidates(query))
+
+
+class CharDataSource:
+    contains_restricted = True  # Data source may contain restricted keys. Not neccessarily enforced.
+    contains_unrestricted = True  # Data source may contain unrestricted keys.
+    description = "nondescript"
+    dict_type = "user defined"
+    default_write = False  # Writes go into this data source by default
+    read_only = False  # Cannot write / delete
+    stores_input_data: bool  # stores input data
+    stores_parsed_data: bool  # stores ONLY input data, requires has_input_source to be set.
+    type_unique = False  # Only one data source with the given dict_type must be present in a CharVersion
+    input_data: MutableMapping
+    parsed_data: MutableMapping
+    input_parser = staticmethod(Parser.input_string_to_value)
+
+    def _check_key(self, key: str) -> bool:
+        if not Regexps.re_key_any.fullmatch(key):
+            return False
+        if not self.contains_restricted and Regexps.re_key_restrict.fullmatch(key):
+            return False
+        if not self.contains_unrestricted and not Regexps.re_key_restrict.fullmatch(key):
+            return False
+        return True
+
+    def __contains__(self, key: str):
+        if not self._check_key(key):
+            return False
+        if self.stores_input_data:
+            return key in self.input_data
+        else:
+            return key in self.parsed_data
+
+    def __getitem__(self, key: str):
+        if self.stores_parsed_data:
+            return self.parsed_data[key]
+        else:
+            return self.input_parser(self.input_data[key])
+
+    def __setitem__(self, key: str, value):
+        if not self._check_key(key):
+            raise KeyError("Data source does not support storing this key")
+        if self.stores_input_data or self.read_only:
+            raise TypeError("Data source does not support storing parsed data")
+        self.parsed_data[key] = value
+
+    def __delitem__(self, key: str):
+        if not self._check_key(key):
+            raise KeyError("Data source does not support deleting this key")
+        if self.stores_parsed_data:
+            del self.parsed_data[key]
+        if self.stores_input_data:
+            del self.input_data[key]
+
+    def get_input(self, key: str):
+        if not self.stores_parsed_data:
+            return None
+        else:
+            return self.input_data[key]
+
+    def set_input(self, key: str, value: str):
+        if self.read_only:
+            raise TypeError("Data source is read-only")
+        if not self._check_key(key):
+            raise KeyError("Data source does not support storing this key")
+        if not value:
+            del self[key]
+        else:
+            if self.stores_input_data:
+                self.input_data[key] = value
+            if self.stores_parsed_data:
+                self.parsed_data[key] = self.input_parser(value)
+
+    def __str__(self):
+        return "Data source of type " + self.dict_type + ": " + self.description
+
+
+class CharDataSourceDict(CharDataSource):
+    dict_type = "Char data source dict"
+    stores_input_data = True
+    stores_parsed_data = True
+
+    def __init__(self):
+        self.input_data = dict()
+        self.parsed_data = dict()
 
 
 class DataSetTypes:
