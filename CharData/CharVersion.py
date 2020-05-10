@@ -1,7 +1,7 @@
 """
 This module defines a class that is used to hold and access a (version of a) character's data.
-Note that characters are versioned in a simple (non-branching) fashion.
-The main data that is used to hold the character is a list S = [S0,S1,S2,...] of dict-like objects.
+Note that characters are supposed to be versioned in a simple (non-branching) fashion.
+The main data that is used to hold the character is a list S = [S0,S1,S2,...] of dict-like data source objects.
 Its keys are PATHS of the form e.g. 'att.st', 'abil.zauberkunde.gfp_spent' (all lowercase, separated by dots)
 When looking up e.g. 'abil.zauberkunde.gfp_spent', we actually look for a value in this order:
 first, look up S0{abil.zauberkunde.gfp_spent}, then S1{abil.zauberkunde.gfp_spent], ...
@@ -11,9 +11,18 @@ then  S0{abil._all}, S1{abil._all}, ...
 then  S0{gfp_spent}, S1{gfp?spent}, ...
 finally S0{_all}, S1{_all}, ...
 We take the first match we find and return an arbitrary python object.
+
+The CharVersion class itself only takes care about managing these dict-like data sources and the lookup.
+To actually use it, you will probably have to subclass it and override/add some @property-methods to tie
+a CharVersion's metadata not contained in self.lists such as last_change to a database.
+
+The individual data sources need to satisfy a certain interface. Derive from CharDataSource to satisfy it.
+Note that CharVersion does not copy its data sources. While a CharVersion object holds a data source in its lists,
+do not edit the data source object directly, but through methods provided by CharVersion.
+(This is because CharVersion might introduce caching in the future)
 """
 
-from typing import TYPE_CHECKING
+# from typing import TYPE_CHECKING
 
 from datetime import datetime, timezone
 from collections import UserDict
@@ -27,20 +36,124 @@ from collections.abc import MutableMapping
 _ALL_SUFFIX = "_all"
 
 class CharVersion:
-    # TODO: add arguments
-    def __init__(self, *, creation_time=None, description: str = "", initial_lists: list = None):
-        if creation_time is None:
-            creation_time: datetime = datetime.now(timezone.utc)
-        # TODO : Warn if user-provided creation_time is not TZ-aware (this may lead to issues with Django)
-        self.creation_time = creation_time
-        self.last_modified = creation_time
-        self.description = description
-        # TODO: automatically created lists may need handling here (such as directory listings)
+    def __init__(self, *, initial_lists: list = None, **kwargs):
         if initial_lists is None:
-            self.lists = []
+            self._lists = []
         else:
-            self.lists = initial_lists
+            self._lists = initial_lists
+
+        # Internally used to speed up lookups:
+        self.unrestricted_lists = []  # indices of data sources that contain unrestricted keys in lookup order
+        self.restricted_lists = []  # indices of data sources that contain restricted keys in lookup order
+        self.type_lookup = {}  # first index of data source for a given dict_type
+        self.desc_lookup = {}  # first index of data source for a given description
+        self.default_target = None  # index that writes go by default
+
+        # These parameters are only set if they occur in kwargs at all
+        # (Note that creation_time = None is handled differently from creation_time not present)
+        # We expect that derived classes override self.creation_time as a @property to tie it to a database.
+        # So we need to keep the option
+        if "creation_time" in kwargs:
+            if kwargs["creation_time"]:
+                self.creation_time: datetime = kwargs["creation_time"]
+            else:
+                self.creation_time: datetime = datetime.now(timezone.utc)
+            self.last_change: datetime = self.creation_time
+        elif "last_change" in kwargs:
+            self.last_change: datetime = kwargs["last_change"]
+        if "description" in kwargs:
+            self.description: str = kwargs["description"]
+        self.update_metadata()
         return
+
+    @property
+    def lists(self):
+        return self._lists
+
+    @lists.setter
+    def lists(self, new_lists):
+        self._lists = new_lists
+        self.update_metadata()
+
+    def update_metadata(self) -> None:
+        """
+        Called to update internal data. Needs to be externally called after lists change.
+        E.g. after x.lists.insert for CharVersion object x.
+        TODO: This interface is not stable
+        :return: None
+        """
+        self.unrestricted_lists = []
+        self.restricted_lists = []
+        self.type_lookup = {}
+        self.desc_lookup = {}
+        self.default_target = None
+
+        for i in range(len(self.lists)):
+            list_i: CharDataSource = self.lists[i]
+            if list_i.contains_restricted:
+                self.restricted_lists += [i]
+            if list_i.contains_unrestricted:
+                self.unrestricted_lists += [i]
+            if list_i.dict_type not in self.type_lookup:
+                self.type_lookup[list_i.dict_type] = i
+            elif list_i.type_unique:
+                raise RuntimeError("Can only put one DataSource of type " + list_i.dict_type + " into CharVersion")
+            self.desc_lookup.setdefault(list_i.description, i)
+            if list_i.default_write:
+                self.default_target = i
+
+    def get_target_index(self, target_type, target_desc):
+        if target_type is None:
+            if target_desc is None:
+                return self.default_target
+            else:
+                return self.desc_lookup[target_desc]
+        else:
+            if target_desc is None:
+                return self.type_lookup[target_type]
+            else:
+                return next(filter(lambda i: self.lists[i].dict_type == target_type and self.lists[i].description == target_desc, range(len(self.lists))), None)
+
+    def set(self, key, value, where=None, *, target_type=None, target_desc=None):
+        if where is None:
+            where = self.get_target_index(target_type, target_desc)
+        self.lists[where][key] = value
+        self.last_change = datetime.now(timezone.utc)
+
+    def set_input(self, key, value, where=None, *, target_type=None, target_desc=None):
+        if where is None:
+            where = self.get_target_index(target_type, target_desc)
+        self.lists[where][key].set_input(key, value)
+        self.last_change = datetime.now(timezone.utc)
+
+    def delete(self, key, where=None, *, target_type=None, target_desc=None):
+        if where is None:
+            where = self.get_target_index(target_type, target_desc)
+        del self.lists[where][key]
+        self.last_change = datetime.now(timezone.utc)
+
+    def find_query(self, key: str, *, indices: typing.Iterable = None):
+        """
+        Find where a given (non-function) query string is located in self.lists
+        :param key: query string
+        :param indices: None or list of indices to restrict lookup rules to
+        :return: pair (query, index) such that self.lists[index][query] is where the lookup for key ends up
+        """
+        try:
+            return next(self.lookup_candidates(key, indices=indices))
+        except StopIteration:
+            return None, None
+
+    def get_input(self, key, where=None, *, target_type=None, target_desc=None):
+        if where is None:
+            where = self.get_target_index(target_type, target_desc)
+        return self.lists[where].get_input(key)
+
+    def get_input_source(self, key, *, default=(None, False)):
+        query, where = self.find_query(key)
+        if where is None:
+            return default
+        return self.lists[where].get_input(query), self.lists[where].stores_input_data
 
     def get(self, query, *, locator: typing.Iterable = None, default=None):
         """
@@ -50,8 +163,8 @@ class CharVersion:
          name according to our lookup rules. This is overridden to implement $AUTO(QUERY) calls.
 
         :param query: The key to query for.
-        :param locator: (only used for $AUTOQUERY calls)
-        :param default: Default value returned if query is not found. If default==None, returns an error.
+        :param locator: iterable to implement lookup. Used to implement $Auto and function lookup from the parser.
+        :param default: Default value returned if query is not found. If default is None, returns an error.
         :return: database entry. DataError exception if key is not found.
         """
         if locator is None:
@@ -213,8 +326,11 @@ class CharDataSource:
     stores_input_data: bool  # stores input data
     stores_parsed_data: bool  # stores ONLY input data, requires has_input_source to be set.
     type_unique = False  # Only one data source with the given dict_type must be present in a CharVersion
-    input_data: MutableMapping
-    parsed_data: MutableMapping
+
+    # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
+    input_data: MutableMapping  # self.storage is where input data is stored if stored_input_data is set
+    parsed_data: MutableMapping  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
+
     input_parser = staticmethod(Parser.input_string_to_value)
 
     def _check_key(self, key: str) -> bool:
@@ -327,9 +443,9 @@ class UserDataSet(UserDict):
 class CoreRuleDataSet(UserDict):
     dict_type = DataSetTypes.CORE_RULES
 
-    def __init__(self, desciption: str = "core rules", startdict: dict = None):
+    def __init__(self, description: str = "core rules", startdict: dict = None):
         super().__init__()
-        self.description = desciption
+        self.description = description
         if startdict is None:
             startdict = {}
         assert isinstance(startdict, dict)
