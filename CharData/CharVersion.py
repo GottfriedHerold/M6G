@@ -324,7 +324,7 @@ class CharDataSource:
     default_write = False  # Writes go into this data source by default
     read_only = False  # Cannot write / delete
     stores_input_data: bool  # stores input data
-    stores_parsed_data: bool  # stores ONLY input data, requires has_input_source to be set.
+    stores_parsed_data: bool  # stores parsed data
     type_unique = False  # Only one data source with the given dict_type must be present in a CharVersion
 
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
@@ -371,11 +371,14 @@ class CharDataSource:
         if self.stores_input_data:
             del self.input_data[key]
 
-    def get_input(self, key: str):
-        if not self.stores_parsed_data:
+    def get_input(self, key: str, default=""):
+        if not self.stores_input_data:
             return None
         else:
-            return self.input_data[key]
+            try:
+                return self.input_data[key]
+            except KeyError:
+                return default
 
     def set_input(self, key: str, value: str):
         if self.read_only:
@@ -383,7 +386,10 @@ class CharDataSource:
         if not self._check_key(key):
             raise KeyError("Data source does not support storing this key")
         if not value:
-            del self[key]
+            try:
+                del self[key]
+            except KeyError:
+                pass
         else:
             if self.stores_input_data:
                 self.input_data[key] = value
