@@ -78,63 +78,63 @@ def test_variable():
 
 def test_equality():
     t = p("4 == 5")
-    assert ev(t) == False
+    assert ev(t) is False
     t = p("4 == 4")
-    assert ev(t) == True
+    assert ev(t) is True
 
 
 def test_inequality():
     t = p("4 != 5")
-    assert ev(t) == True
+    assert ev(t) is True
     t = p("'a' != 'a'")
-    assert ev(t) == False
+    assert ev(t) is False
 
 
 def test_lt():
     t = p("4 < 5")
-    assert ev(t) == True
+    assert ev(t) is True
     t = p("'ab' < 'ac' ")
-    assert ev(t) == True
-    assert evp("4 < 4") == False
-    assert evp("5 < 4") == False
+    assert ev(t) is True
+    assert evp("4 < 4") is False
+    assert evp("5 < 4") is False
 
 
 def test_lte():
-    assert evp("4 <= 5") == True
-    assert evp("4 <= 4") == True
-    assert evp("4 <= 3") == False
+    assert evp("4 <= 5") is True
+    assert evp("4 <= 4") is True
+    assert evp("4 <= 3") is False
 
 
 def test_gt():
-    assert evp("4 > 5") == False
-    assert evp("4 > 4") == False
-    assert evp("5 > 4") == True
+    assert evp("4 > 5") is False
+    assert evp("4 > 4") is False
+    assert evp("5 > 4") is True
 
 
 def test_gte():
-    assert evp("4 >= 5") == False
-    assert evp("4>=4") == True
-    assert evp("5 >= 4") == True
+    assert evp("4 >= 5") is False
+    assert evp("4>=4") is True
+    assert evp("5 >= 4") is True
 
 
 def test_and():
     assert evp("2 AND 5") == 5
     assert evp("'' AND 1") == ''
-    assert evp("1 AND 0") == False
-    assert evp("1 AND 1") == True
-    assert evp("0 AND 1") == False
-    assert evp("0 AND 0") == False
-    assert evp("(1==0) AND (1/0)") == False
+    assert evp("1 AND 0") == 0
+    assert evp("1 AND 1") == 1
+    assert evp("0 AND 1") == 0
+    assert evp("0 AND 0") == 0
+    assert evp("(1==0) AND (1/0)") is False
 
 
 def test_or():
     assert evp("2 OR 5") == 2
     assert evp("'' OR 5") == 5
-    assert evp("1 OR (1/0) ") == True
-    assert evp("0 OR 0") == False
-    assert evp("0 OR 1") == True
-    assert evp("1 OR 0") == True
-    assert evp("1 OR 1") == True
+    assert evp("1 OR (1/0) ") == 1
+    assert evp("0 OR 0") == 0
+    assert evp("0 OR 1") == 1
+    assert evp("1 OR 0") == 1
+    assert evp("1 OR 1") == 1
 
 
 def test_cond():
@@ -176,60 +176,61 @@ def test_list():
     assert evp("[1]") == [1]
     assert evp("[1+1] + [2+2,]") == [2, 4]
 
-
-#TODO
-def notest_lookups(empty3cv: 'CharVersion.CharVersion'):
-    L1: CharVersion.UserDataSet = empty3cv.lists[0]
-    L2: CharVersion.UserDataSet = empty3cv.lists[1]
-    L3: CharVersion.CoreRuleDataSet = empty3cv.lists[2]  # Core rule dataset
+def test_lookups(empty3cv: 'CharVersion.CharVersion'):
+    # L1: CharVersion.UserDataSet = empty3cv.lists[0]
+    # L2: CharVersion.UserDataSet = empty3cv.lists[1]
+    # L3: CharVersion.CoreRuleDataSet = empty3cv.lists[2]  # Core rule dataset
+    l1set_from_string = lambda x, y: empty3cv.set_input(key=x, value=y, target_desc="D1")
+    l2set_from_string = lambda x, y: empty3cv.set_input(key=x, value=y, target_desc="D2")
+    l3set_from_string = lambda x, y: empty3cv.set_input(key=x, value=y, target_desc="D3")
 
     x = empty3cv.get('abc')
     assert isinstance(x, CharExceptions.DataError)
-    L1.set_from_string('a', 'T1')
+    l1set_from_string('a', 'T1')
     x = empty3cv.get('b.a')
     assert x == 'T1'
     x = empty3cv.get('__b__.a')
     assert isinstance(x, CharExceptions.DataError)
-    L1.set_from_string('b', '=$AUTO + 2')
-    L2.set_from_string('b', '10')
-    L3.set_from_string('b', '100')
-    L2.set_from_string('xxx', '=b + b + 1')
+    l1set_from_string('b', '=$AUTO + 2')
+    l2set_from_string('b', '10')
+    l3set_from_string('b', '100')
+    l2set_from_string('xxx', '=b + b + 1')
     x = empty3cv.get('yyy.xxx')
     assert x == 25
-    L2.set_from_string('indirect', '=GET("b")')
+    l2set_from_string('indirect', '=GET("b")')
     assert empty3cv.get('indirect') == 12
-    L1.set_from_string('x.c', '=$AUTO')
-    L2.set_from_string('x.c', '=$AUTO')
-    L2.set_from_string('c', '=[$QUERY,$NAME]')
+    l1set_from_string('x.c', '=$AUTO')
+    l2set_from_string('x.c', '=$AUTO')
+    l2set_from_string('c', '=[$QUERY,$NAME]')
     assert empty3cv.get('c') == ['c', 'c']
     assert empty3cv.get('y.c') == ['y.c', 'c']
-    L1.set_from_string('c', '=$AUTO')
+    l1set_from_string('c', '=$AUTO')
     assert empty3cv.get('y.c') == ['c', 'c']
-    L1.set_from_string('c', '=$AUTOQUERY')
+    l1set_from_string('c', '=$AUTOQUERY')
     assert empty3cv.get('y.c') == ['y.c', 'c']
     assert empty3cv.get('x.c') == ['x.c', 'c']
     assert empty3cv.get('x.y.c') == ['x.c', 'c']
-    L1.set_from_string('anotherindirect', '=GET("x." + "y.c")')
+    l1set_from_string('anotherindirect', '=GET("x." + "y.c")')
     assert empty3cv.get('anotherindirect') == ['x.c', 'c']
-    L3.set_from_string('__fun__.f', "=FUN[$a]($a * $a)")
-    L3.set_from_string('__fun__.g', '=__fun__.f')
-    L3.set_from_string('fun.f', "10")
-    L2.set_from_string('fun.h', '=FUN[$b]($b + 100)')
-    L1.set_from_string('fff', '=H(3)')
+    l3set_from_string('__fun__.f', "=FUN[$a]($a * $a)")
+    l3set_from_string('__fun__.g', '=__fun__.f')
+    l3set_from_string('fun.f', "10")
+    l2set_from_string('fun.h', '=FUN[$b]($b + 100)')
+    l1set_from_string('fff', '=H(3)')
     assert empty3cv.get('fff') == 103
-    L1.set_from_string('fff', '=H($b=4)')
+    l1set_from_string('fff', '=H($b=4)')
     assert empty3cv.get('fff') == 104
-    L1.set_from_string('fff', '=H($c=4)')
+    l1set_from_string('fff', '=H($c=4)')
     assert isinstance(empty3cv.get('fff'), CharExceptions.DataError)
-    L1.set_from_string('fff', '=H("b"=5)')
+    l1set_from_string('fff', '=H("b"=5)')
     assert empty3cv.get('fff') == 105
     # noinspection PyUnusedLocal
     x = empty3cv.get('__fun__.f')
-    L1.set_from_string('fff', '=F(3)')
+    l1set_from_string('fff', '=F(3)')
     assert empty3cv.get('fff') == 9
-    L1.set_from_string('fff', '=G(3)')
+    l1set_from_string('fff', '=G(3)')
     assert empty3cv.get('fff') == 9
-    L1.set_from_string('lookup', '=FUN[$a](GET($a))')
+    l1set_from_string('lookup', '=FUN[$a](GET($a))')
     lookup = empty3cv.get('lookup')
     assert lookup('fff') == 9
     assert lookup('x.y.c') == ['x.c', 'c']

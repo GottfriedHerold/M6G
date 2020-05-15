@@ -22,21 +22,23 @@ do not edit the data source object directly, but through methods provided by Cha
 (This is because CharVersion might introduce caching in the future)
 """
 
-# from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from datetime import datetime, timezone
-from collections import UserDict
-import typing
+# from collections import UserDict
+if TYPE_CHECKING:
+    from typing import List, Optional, Union, Any, Tuple, Generator, Iterable  # Only used when TYPE_CHECKING.
+    from collections.abc import MutableMapping, Mapping  # Only used when TYPE_CHECKING
+
 # import itertools
 from . import Regexps
 from . import Parser
 from . import CharExceptions
-from collections.abc import MutableMapping
 
 _ALL_SUFFIX = "_all"
 
 class CharVersion:
-    def __init__(self, *, initial_lists: list = None, **kwargs):
+    def __init__(self, *, initial_lists: "List[CharDataSource]" = None, **kwargs):
         if initial_lists is None:
             self._lists = []
         else:
@@ -67,7 +69,7 @@ class CharVersion:
         return
 
     @property
-    def lists(self):
+    def lists(self) -> "List[CharDataSource]":
         return self._lists
 
     @lists.setter
@@ -102,7 +104,7 @@ class CharVersion:
             if list_i.default_write:
                 self.default_target = i
 
-    def get_target_index(self, target_type, target_desc):
+    def get_target_index(self, target_type: "Optional[str]", target_desc: "Optional[str]"):
         if target_type is None:
             if target_desc is None:
                 return self.default_target
@@ -114,25 +116,47 @@ class CharVersion:
             else:
                 return next(filter(lambda i: self.lists[i].dict_type == target_type and self.lists[i].description == target_desc, range(len(self.lists))), None)
 
-    def set(self, key, value, where=None, *, target_type=None, target_desc=None):
+    def get_data_source(self, where: "Optional[int]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> "CharDataSource":
         if where is None:
             where = self.get_target_index(target_type, target_desc)
-        self.lists[where][key] = value
-        self.last_change = datetime.now(timezone.utc)
+        if where is None:
+            raise LookupError("Could not find requested data source.")
+        return self.lists[where]
 
-    def set_input(self, key, value, where=None, *, target_type=None, target_desc=None):
+    def set(self, key: str, value: "Any", where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
         if where is None:
             where = self.get_target_index(target_type, target_desc)
-        self.lists[where][key].set_input(key, value)
+        if isinstance(where, int):
+            self.lists[where][key] = value
+        else:
+            if where not in self.lists:
+                raise LookupError("Could not find target data source")
+            where[key] = value
         self.last_change = datetime.now(timezone.utc)
 
-    def delete(self, key, where=None, *, target_type=None, target_desc=None):
+    def set_input(self, key: str, value: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
         if where is None:
             where = self.get_target_index(target_type, target_desc)
-        del self.lists[where][key]
+        if isinstance(where, int):
+            self.lists[where].set_input(key, value)
+        else:
+            if where not in self.lists:
+                raise LookupError("Could not find target data source")
+            where.set_input(key, value)
         self.last_change = datetime.now(timezone.utc)
 
-    def find_query(self, key: str, *, indices: typing.Iterable = None):
+    def delete(self, key: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
+        if where is None:
+            where = self.get_target_index(target_type, target_desc)
+        if isinstance(where, int):
+            del self.lists[where][key]
+        else:
+            if where not in self.lists:
+                raise LookupError("Could not find target data source")
+            del where[key]
+        self.last_change = datetime.now(timezone.utc)
+
+    def find_query(self, key: str, *, indices: "Optional[Iterable[int]]" = None) -> "Tuple[str, int]":
         """
         Find where a given (non-function) query string is located in self.lists
         :param key: query string
@@ -140,22 +164,39 @@ class CharVersion:
         :return: pair (query, index) such that self.lists[index][query] is where the lookup for key ends up
         """
         try:
-            return next(self.lookup_candidates(key, indices=indices))
+            return next(self.find_lookup(key, indices=indices))
         except StopIteration:
-            return None, None
+            raise LookupError
 
-    def get_input(self, key, where=None, *, target_type=None, target_desc=None):
+    def get_input(self, key: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> str:
         if where is None:
             where = self.get_target_index(target_type, target_desc)
-        return self.lists[where].get_input(key)
+        if isinstance(where, int):
+            return self.lists[where].get_input(key)
+        else:
+            if where not in self.lists:
+                raise LookupError("Could not find data source")
+            return where.get_input(key)
 
-    def get_input_source(self, key, *, default=(None, False)):
-        query, where = self.find_query(key)
-        if where is None:
+    def get_input_source(self, key: str, *, default=("", True)) -> "Tuple[str, bool]":
+        """
+        Retrieves the input source string for a given query string key as first return value.
+        The second return value indicates whether the data source where lookup ends up has input data at all.
+        Note: If the lookup ends in an actual data source that has input data, the returned input string cannot be "".
+
+        If the query string is not found, returns default value, which is ("", True) if not given.
+
+        If the second return value is False, the first may be None or an arbitrary string.
+        """
+        try:
+            query, where = self.find_query(key)
+        except LookupError:
             return default
+        # Note that get_input should not throw an exception when stores_input_data is False,
+        # but rather return some value indicating error (None, "", or an error message string)
         return self.lists[where].get_input(query), self.lists[where].stores_input_data
 
-    def get(self, query, *, locator: typing.Iterable = None, default=None):
+    def get(self, query: str, *, locator: "Iterable" = None, default=None):
         """
         Obtain an element from the current CharVersion database by query name.
 
@@ -223,7 +264,7 @@ class CharVersion:
                 ret = CharExceptions.DataError("Error evaluating " + located_key, exception=e)  # TODO: Keep exception?
         return ret
 
-    def lookup_candidates(self, query: str, *, restricted: bool = None, indices: typing.Iterable = None):
+    def lookup_candidates(self, query: str, *, restricted: bool = None, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
         """
         generator that yields all possible candidates for a given query string, implementing our lookup rules.
         The results are pairs (key, index), where index is an index into CharVersion.lists and key is the
@@ -252,7 +293,10 @@ class CharVersion:
         if restricted is None:
             restricted = not Regexps.re_key_regular.fullmatch(query)
         if indices is None:
-            indices = range(len(self.lists))
+            if restricted:
+                indices = self.restricted_lists
+            else:
+                indices = self.unrestricted_lists
 
         split_key = query.split('.')
         keylen = len(split_key)
@@ -279,7 +323,7 @@ class CharVersion:
                 yield search_key, j
         return
 
-    def function_candidates(self, query: str, *, indices: typing.Iterable = None):
+    def function_candidates(self, query: str, *, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
         """
         Obtains a list of candidate positions for a function name lookup for query.upper()
         Returns pairs (key, index into lists)
@@ -289,35 +333,38 @@ class CharVersion:
         """
         assert Regexps.re_funcname_lowercased.fullmatch(query)
         if indices is None:
-            indices = range(len(self.lists))
+            indices1 = self.restricted_lists
+            indices2 = self.unrestricted_lists
+        else:
+            indices1 = indices2 = indices
         s = '__fun__.' + query
-        for j in indices:
+        for j in indices1:
             yield s, j
         s = 'fun.' + query
-        for j in indices:
+        for j in indices2:
             yield s, j
 
-    def has_value(self, pair):
+    def has_value(self, pair: "Tuple[str, int]") -> bool:
         """Check whether candidate pair (as output by function_candidates or lookup_candidates) actually exists"""
         return pair[0] in self.lists[pair[1]]
 
-    def find_lookup(self, query: str):
+    def find_lookup(self, query: str, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
         """
         yield all candidate pairs (lookup_key, index into self.lists) of candidates that match query according
         to our lookup rules for database keys a.b.c
         """
-        yield from filter(self.has_value, self.lookup_candidates(query))
+        yield from filter(self.has_value, self.lookup_candidates(query, indices=indices))
 
-    def find_function(self, query: str):
+    def find_function(self, query: str, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
         """
         yield all candidate pairs (lookup_key, index into self.lists) of candidates that match query according
         to our lookup rules for function queries FUNCTION
         """
-        yield from filter(self.has_value, self.function_candidates(query))
+        yield from filter(self.has_value, self.function_candidates(query, indices=indices))
 
 
 class CharDataSource:
-    contains_restricted = True  # Data source may contain restricted keys. Not neccessarily enforced.
+    contains_restricted = True  # Data source may contain restricted keys. Not necessarily enforced.
     contains_unrestricted = True  # Data source may contain unrestricted keys.
     description = "nondescript"
     dict_type = "user defined"
@@ -328,12 +375,21 @@ class CharDataSource:
     type_unique = False  # Only one data source with the given dict_type must be present in a CharVersion
 
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
-    input_data: MutableMapping  # self.storage is where input data is stored if stored_input_data is set
-    parsed_data: MutableMapping  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
+    input_data: "Union[Mapping, MutableMapping]"  # self.storage is where input data is stored if stored_input_data is set
+    parsed_data: "Union[Mapping, MutableMapping]"  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
 
     input_parser = staticmethod(Parser.input_string_to_value)
 
     def _check_key(self, key: str) -> bool:
+        """
+        The default implementation runs this on keys before some operations to check whether the key may even be
+        in input_data resp. parsed_data. This is purely an optimization for the case where
+        lookups in stores_input_data or stores_parsed_data are expensive (read: database)
+        Always returning true is perfectly fine. It is up to the concrete class to ensure this optimization works.
+        Do not rely on the setters checking this.
+        :param key: key to look up
+        :return: False if we can somehow guarantee that this key does not belong into this data source.
+        """
         if not Regexps.re_key_any.fullmatch(key):
             return False
         if not self.contains_restricted and Regexps.re_key_restrict.fullmatch(key):
@@ -342,7 +398,7 @@ class CharDataSource:
             return False
         return True
 
-    def __contains__(self, key: str):
+    def __contains__(self, key: str) -> bool:
         if not self._check_key(key):
             return False
         if self.stores_input_data:
@@ -356,14 +412,14 @@ class CharDataSource:
         else:
             return self.input_parser(self.input_data[key])
 
-    def __setitem__(self, key: str, value):
+    def __setitem__(self, key: str, value) -> None:
         if not self._check_key(key):
             raise KeyError("Data source does not support storing this key")
         if self.stores_input_data or self.read_only:
             raise TypeError("Data source does not support storing parsed data")
         self.parsed_data[key] = value
 
-    def __delitem__(self, key: str):
+    def __delitem__(self, key: str) -> None:
         if not self._check_key(key):
             raise KeyError("Data source does not support deleting this key")
         if self.stores_parsed_data:
@@ -371,7 +427,14 @@ class CharDataSource:
         if self.stores_input_data:
             del self.input_data[key]
 
-    def get_input(self, key: str, default=""):
+    def get_input(self, key: str, default="") -> "Optional[str]":
+        """
+        Gets the input data associated to the key, or default = "" if not found.
+
+        Note: If we do not store input data, returns None. This may be overwritten by a derived class to return
+        an error message string. It must not throw an exception.
+        The default = "" behaviour must NOT be overwritten.
+        """
         if not self.stores_input_data:
             return None
         else:
@@ -380,7 +443,7 @@ class CharDataSource:
             except KeyError:
                 return default
 
-    def set_input(self, key: str, value: str):
+    def set_input(self, key: str, value: str) -> None:
         if self.read_only:
             raise TypeError("Data source is read-only")
         if not self._check_key(key):
@@ -396,7 +459,7 @@ class CharDataSource:
             if self.stores_parsed_data:
                 self.parsed_data[key] = self.input_parser(value)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "Data source of type " + self.dict_type + ": " + self.description
 
 
@@ -410,61 +473,61 @@ class CharDataSourceDict(CharDataSource):
         self.parsed_data = dict()
 
 
-class DataSetTypes:
-    """
-    Different types of data sets that can be in a char version. These differ slightly in interface and may need to be
-    handled differently. This information may be available from DataSet.__class__ as well, in which case we set
-    DataSet.dict_type as a class variable, but we want to keep the option to set it on an instance-by-instance basis
-    """
-    USER_INPUT = "user input"
-    CORE_RULES = "core rules"
-    USER_RULES = "user rules"
-    PREDEFINED_RULES = "predefined rules"
-    CACHE_DATASET = "cache"
+# class DataSetTypes:
+#     """
+#     Different types of data sets that can be in a char version. These differ slightly in interface and may need to be
+#     handled differently. This information may be available from DataSet.__class__ as well, in which case we set
+#     DataSet.dict_type as a class variable, but we want to keep the option to set it on an instance-by-instance basis
+#     """
+#     USER_INPUT = "user input"
+#     CORE_RULES = "core rules"
+#     USER_RULES = "user rules"
+#     PREDEFINED_RULES = "predefined rules"
+#     CACHE_DATASET = "cache"
 
 
-class UserDataSet(UserDict):
-    dict_type = DataSetTypes.USER_INPUT
-
-    # Note: We have no startdict, because we want input_data to be consistent.
-    def __init__(self, *, description: str = ""):
-        super().__init__()  # empty dict
-        self.description = description
-        self.input_data = {}
-
-    def set_from_string(self, key, value):
-        # check at call site
-        assert Regexps.re_key_regular.fullmatch(key)
-        if len(value) == 0:
-            del self.input_data[key]
-            del self[key]
-            return
-        self.input_data[key] = value
-        self[key] = Parser.input_string_to_value(value)
-
-    def get_input(self, key):
-        return self.input_data.get(key, None)
-
-
-class CoreRuleDataSet(UserDict):
-    dict_type = DataSetTypes.CORE_RULES
-
-    def __init__(self, description: str = "core rules", startdict: dict = None):
-        super().__init__()
-        self.description = description
-        if startdict is None:
-            startdict = {}
-        assert isinstance(startdict, dict)
-        self.data = startdict
-
-    def set_from_string(self, key, value):
-        assert Regexps.re_key_any.fullmatch(key)
-        if len(value) == 0:
-            del self[key]
-        else:
-            self[key] = Parser.input_string_to_value(value)
-
-    # noinspection PyUnusedLocal
-    @staticmethod
-    def get_input(key):
-        return None
+# class UserDataSet(UserDict):
+#     dict_type = DataSetTypes.USER_INPUT
+#
+#     # Note: We have no startdict, because we want input_data to be consistent.
+#     def __init__(self, *, description: str = ""):
+#         super().__init__()  # empty dict
+#         self.description = description
+#         self.input_data = {}
+#
+#     def set_from_string(self, key, value):
+#         # check at call site
+#         assert Regexps.re_key_regular.fullmatch(key)
+#         if len(value) == 0:
+#             del self.input_data[key]
+#             del self[key]
+#             return
+#         self.input_data[key] = value
+#         self[key] = Parser.input_string_to_value(value)
+#
+#     def get_input(self, key):
+#         return self.input_data.get(key, None)
+#
+#
+# class CoreRuleDataSet(UserDict):
+#     dict_type = DataSetTypes.CORE_RULES
+#
+#     def __init__(self, description: str = "core rules", startdict: dict = None):
+#         super().__init__()
+#         self.description = description
+#         if startdict is None:
+#             startdict = {}
+#         assert isinstance(startdict, dict)
+#         self.data = startdict
+#
+#     def set_from_string(self, key, value):
+#         assert Regexps.re_key_any.fullmatch(key)
+#         if len(value) == 0:
+#             del self[key]
+#         else:
+#             self[key] = Parser.input_string_to_value(value)
+#
+#     # noinspection PyUnusedLocal
+#     @staticmethod
+#     def get_input(key):
+#         return None
