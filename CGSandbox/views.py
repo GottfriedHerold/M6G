@@ -5,3 +5,6 @@ from django.http import HttpResponse
 
 def testview(request):
     return HttpResponse("Django running")
+
+def jinjatestview(request):
+    return render(request, "jinjatest.html", using="HTTPJinja2")
