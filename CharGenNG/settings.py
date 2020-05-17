@@ -11,10 +11,13 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 """
 
 import os
+import jinja2
+from jinja2 import Environment
+from django.templatetags.static import static
+from django.urls import reverse
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.0/howto/deployment/checklist/
@@ -53,6 +56,14 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'CharGenNG.urls'
 
+def http_jinja_env(**options):
+    env = Environment(**options)
+    env.globals.update({
+        'static': static,
+        'url': reverse,
+    })
+    return env
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -69,8 +80,12 @@ TEMPLATES = [
     },
     {
         'BACKEND': 'django.template.backends.jinja2.Jinja2',
-        'APP_DIRS': True,
+        'APP_DIRS': False,
         'NAME': 'HTTPJinja2',
+        'OPTIONS': {
+          'environment': 'CharGenNG.settings.http_jinja_env'
+        },
+        'DIRS': [os.path.join(BASE_DIR, 'templates/http')]
     }
 ]
 
@@ -125,4 +140,4 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.0/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = os.path.join(BASE_DIR, 'static/')

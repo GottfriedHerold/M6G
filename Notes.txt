@@ -2,5 +2,6 @@ Dependencies:
 ply
 Django
 pytest
+Jinja2
 
 TODO: Password restrictions?
