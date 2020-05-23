@@ -142,8 +142,15 @@ LOGGING = {
     'handlers': {
         'develop': {
             'class': 'logging.StreamHandler',
-            'level': 'DEBUG'
+            'level': 'DEBUG',
+            'formatter': 'simple',
         },
+    },
+    'formatters':{
+      'simple': {
+          'format': '{levelname} {message}',
+          'style': '{',
+      },
     },
     'loggers': {
         'chargen': {
