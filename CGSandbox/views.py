@@ -7,4 +7,4 @@ def testview(request):
     return HttpResponse("Django running")
 
 def jinjatestview(request):
-    return render(request, "jinjatest.html", using="HTTPJinja2")
+    return render(request, "base.html", using="HTTPJinja2")

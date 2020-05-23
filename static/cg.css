@@ -1,0 +1,46 @@
+body, html {
+height:100%;
+box-sizing: border-box;
+margin:0;
+}
+
+.markoutline {
+    outline-style: solid;
+    outline-color: red;
+    outline-width: 1px;
+}
+
+.layoutbox{
+    box-sizing: border-box;
+    margin: 0;
+    border-style: none;
+    padding: 0;
+}
+
+.horizonclip{
+overflow-x:hidden;
+overflow-y: auto;
+}
+
+#sidenavcontainer{
+min-width:5em;
+max-width:8em;
+background-color:lightgreen;
+}
+
+#mainareacontainer{
+overflow:auto;
+background-color:purple
+}
+
+#helpcontainer{
+background-color:teal;
+}
+
+#statuscontainer{
+background-color:lightblue;
+}
+
+#headercontainer{
+background-color: yellows;
+}

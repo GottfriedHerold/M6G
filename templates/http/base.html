@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Base HTML template</title>
+    <link rel="stylesheet" href="{{ static('cg.css')}}">
+    {% set biglorem='<div style="width:100%;height:200ex;">Lorem ipsum</div>' %}
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+<div class="layoutbox" id="outerflexcontainer" style="display:flex; flex-direction:column; height:100%; width:100%;">
+    <div class="layoutbox" id="headercontainer" style="flex:0 0;">
+        Header
+    </div>
+    <div class="layoutbox" id="middlerowcontainer"  style="flex 1 1 auto; min-height:10pt; display:flex; flex-direction:row; width:100%;">
+        <div class="layoutbox horizonclip" id="sidenavcontainer" style="flex:1 0 auto;">
+            Sidenav
+        </div>
+        <div class="layoutbox" id="mainareacontainer" style="flex: 0 1 100%;">
+            Main area
+        </div>
+        <div class="layoutbox" id="monitorscontainer" style="flex: 0 0 15%;">
+            <div class="layoutbox horizonclip" id="helpcontainer" style="height:50%;">
+                Help
+            </div>
+            <div class="layoutbox horizonclip" id="statuscontainer" style="height:50%;">
+                Status
+            </div>
+        </div>
+    </div>
+    <div class="layoutbox" id="footercontainer" style="flex:0 0;">
+        Footer
+    </div>
+</div>
+</body>
+</html>
