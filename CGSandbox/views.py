@@ -10,6 +10,6 @@ def testview(request):
     return HttpResponse("Django running")
 
 def jinjatestview(request):
-    # logger = logging.getLogger('chargen')
-    # logger.info(request.__dict__['environ'])
+    logger = logging.getLogger('chargen')
+    logger.info(request.META)
     return render(request, "base.html", using="HTTPJinja2")

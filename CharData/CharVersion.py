@@ -384,7 +384,7 @@ class CharDataSource:
         """
         The default implementation runs this on keys before some operations to check whether the key may even be
         in input_data resp. parsed_data. This is purely an optimization for the case where
-        lookups in stores_input_data or stores_parsed_data are expensive (read: database)
+        lookups in stores_input_data or stores_parsed_data are expensive (i.e. database access)
         Always returning true is perfectly fine. It is up to the concrete class to ensure this optimization works.
         Do not rely on the setters checking this.
         :param key: key to look up
