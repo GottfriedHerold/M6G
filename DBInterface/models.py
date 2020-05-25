@@ -18,14 +18,20 @@ CHAR_NAME_MAX_LENGTH = 80
 CV_DESCRIPTION_MAX_LENGTH = 240
 MAX_INPUT_LENGTH = 200
 logger = logging.getLogger('chargen.database')
+user_logger = logging.getLogger('chargen.database.users')
 
 def get_default_group():
-    all_group, created = Group.objects.get_or_create(pk=0, defaults={'name': 'all users'})
+    all_group, created = Group.objects.get_or_create(pk=1, defaults={'name': 'all users'})
     if created:
         logger.warning('Had to setup group for all users')
     elif all_group.name != 'all users':
-        logger.critical('Group with id 0 does not have the expected name.')
+        logger.critical('Group with id 1 does not have the expected name.')
     return all_group
+
+def _error_on_delete():
+    logger.error("deleting parent CharVersion")
+    return None
+
 
 class CharVersionModel(models.Model):
     """
@@ -36,6 +42,11 @@ class CharVersionModel(models.Model):
     version_name = models.CharField(max_length=CHAR_NAME_MAX_LENGTH, blank=True, default="")
     owner__name: models.CharField
 
+    class Meta:
+        get_latest_by = 'creation_time'
+        default_permissions = ()
+
+
     @property
     def name(self) -> str:
         my_name = self.version_name
@@ -43,11 +54,6 @@ class CharVersionModel(models.Model):
             return str(my_name)
         else:
             return str(self.owner__name)
-
-    @staticmethod
-    def _error_on_delete():
-        logger.error("deleting parent CharVersion")
-        return None
 
     # Short description of char Version
     description = models.CharField(max_length=CV_DESCRIPTION_MAX_LENGTH, blank=True)
@@ -75,6 +81,8 @@ class CharVersionModel(models.Model):
             return self.name + " V" + str(self.char_version_number)
 
 class CharModel(models.Model):
+    class Meta:
+        default_permissions = ()
     name = models.CharField(max_length=CHAR_NAME_MAX_LENGTH)
     description = models.CharField(max_length=240, blank=True)
     max_version = models.PositiveIntegerField(default=1)
@@ -84,10 +92,13 @@ class CharModel(models.Model):
     creator = models.ForeignKey('CGUser', on_delete=models.SET_NULL, null=True, related_name='created_chars')
     user_permissions = models.ManyToManyField('CGUser', through='UserPermissions', related_name='allowed_chars')
     group_permissions = models.ManyToManyField(Group, through='GroupPermissions', related_name='allowed_groups')
-
     users = models.ManyToManyField('CGUser', through='CharUsers', related_name='users', related_query_name='user')
 
 class UserPermissions(models.Model):
+    class Meta:
+        default_permissions = ()
+        constraints = [models.UniqueConstraint(fields=['char', 'user'], name='m2muserperms')]
+        indexes = [models.Index(fields=['char', 'user'])]
     char = models.ForeignKey(CharModel, on_delete=models.CASCADE)
     user = models.ForeignKey('CGUser', on_delete=models.CASCADE)
     may_read = models.BooleanField(default=True)
@@ -95,6 +106,10 @@ class UserPermissions(models.Model):
     # TODO: save
 
 class GroupPermissions(models.Model):
+    class Meta:
+        default_permissions = ()
+        constraints = [models.UniqueConstraint(fields=['char', 'group'], name='m2mgroupperms')]
+        indexes = [models.Index(fields=['char', 'group'])]
     char = models.ForeignKey(CharModel, on_delete=models.CASCADE)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     may_read = models.BooleanField(default=True)
@@ -102,15 +117,15 @@ class GroupPermissions(models.Model):
     # TODO: save
 
 class CharUsers(models.Model):
+    class Meta:
+        default_permissions = ()
+        constraints = [models.UniqueConstraint(fields=['char', 'user'], name='m2mcharuser')]
+        indexes = [models.Index(fields=['char', 'user'])]
     char = models.ForeignKey(CharModel, on_delete=models.CASCADE)
     user = models.ForeignKey('CGUser', on_delete=models.CASCADE)
     opened_version = models.ForeignKey(CharVersionModel, on_delete=models.SET_NULL, null=True, related_name='+')
     read_permission = models.BooleanField()
     write_permission = models.BooleanField()
-
-
-
-
 
 
 class CGUserManager(BaseUserManager):
@@ -123,16 +138,20 @@ class CGUserManager(BaseUserManager):
         user = self.model(username=username, email=email)
         user.set_password(password)
         user.save(using=self._db)
+        user_logger.info('Created user with username %s', username)
+        user.groups.add(get_default_group())
         return user
 
     def create_superuser(self, username, email, password=None):
         user = self.create_user(username=username, email=email, password=password)
         user.is_admin = True
         user.save(using=self._db)
+        user_logger.critical('Turned user into superuser with username %s', username)
         return user
 
-# Note: The PermissionsMixin may eventually be removed...
-class CGUser(AbstractBaseUser, PermissionsMixin):
+class CGUser(AbstractBaseUser):
+    class Meta:
+        default_permissions = ()
     username = models.CharField(max_length=40, unique=True)
     USERNAME_FIELD = 'username'  # database field that is used as username in the login.
     REQUIRED_FIELDS = ['email']  # list of additional mandatory fields queried in the "manage.py createsuperuser" script.
@@ -151,10 +170,20 @@ class CGUser(AbstractBaseUser, PermissionsMixin):
             Used by Django's built-in Admin (web-)interface to determine whether the user has access to that interface.
             Note that is_superuser is used internally by Django to override its default permission system for model/object-
             specific permissions. These are, in general, different things, hence Django distinguishes staff and admin.
+            Since CGUser does not include PermissionsMixin and we actively disable Django's permissions system,
+            we do not need to make that distinction.
+            The only Django permissions that we use is that only the admin can use the admin interface and there
+            are no restrictions for the admin there.
         """
 
         return self.is_admin
 
     @property
     def is_superuser(self):
+        return self.is_admin
+
+    def has_perm(self, perm, obj=None):
+        return self.is_admin
+
+    def has_module_perms(self, perm, obj=None):
         return self.is_admin

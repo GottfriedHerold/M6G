@@ -1,8 +1,11 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-#from django.contrib.auth.forms import UserCreationForm
-from .models import CGUser
+# from django.contrib.auth.forms import UserCreationForm
+from .models import CGUser, get_default_group
+from django.contrib.auth.forms import ReadOnlyPasswordHashField
+import logging
+user_logger = logging.getLogger('chargen.database.users')
 
 class CGUserCreationForm(forms.ModelForm):
     class Meta:
@@ -18,7 +21,7 @@ class CGUserCreationForm(forms.ModelForm):
         """
         password1 = self.cleaned_data.get('password1')
         password2 = self.cleaned_data.get('password2')
-        if password1 and password2 and password1!=password2:
+        if password1 and password2 and password1 != password2:
             raise forms.ValidationError("Passwords do not match")
         return password2
 
@@ -29,26 +32,29 @@ class CGUserCreationForm(forms.ModelForm):
         user.set_password(self.cleaned_data['password1'])
         if commit:
             user.save()
+            user.groups.add(get_default_group())
+            user_logger.info('Created user %s via admin interface', user.username)
         return user
 
 class CGUserChangeForm(forms.ModelForm):
     class Meta:
-            model = CGUser
-            fields = ('username', 'email', 'password', 'is_active', 'is_admin', 'groups')
+        model = CGUser
+        fields = ('username', 'email', 'password', 'is_active', 'is_admin', 'groups')
+    password = ReadOnlyPasswordHashField()
 
     def clean_password(self):
         return self.initial['password']
 
 
 class UserAdmin(BaseUserAdmin):
-    #add_form = CGUserCreationForm
-    #form = CGUserChangeForm
+    add_form = CGUserCreationForm
+    form = CGUserChangeForm
     list_display = ('username', 'email', 'is_admin')
     list_filter = ('is_admin',)
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
-        ('Permissions', {'fields': ('is_admin','is_active')}),
-        #('Groups', {'fields':('groups',)}),
+        ('Permissions', {'fields': ('is_admin', 'is_active')}),
+        ('Groups', {'fields':('groups',)}),
     )
     add_fieldsets = (
         (None, {
@@ -61,4 +67,5 @@ class UserAdmin(BaseUserAdmin):
     filter_horizontal = ()
 
 # Register your models here.
+# admin.site.unregister(CGUser)
 admin.site.register(CGUser, UserAdmin)
