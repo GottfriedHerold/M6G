@@ -1,7 +1,10 @@
 <component name="ProjectDictionaryState">
   <dictionary name="gottfried">
     <words>
+      <w>chargen</w>
       <w>delimeters</w>
+      <w>formatters</w>
+      <w>jinja</w>
       <w>nequals</w>
       <w>typedesc</w>
     </words>

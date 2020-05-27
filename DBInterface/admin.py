@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 # from django.contrib.auth.forms import UserCreationForm
 from .models import CGUser, get_default_group
+from . import models as DBInterfaceModels
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
 import logging
 user_logger = logging.getLogger('chargen.database.users')
@@ -69,3 +70,9 @@ class UserAdmin(BaseUserAdmin):
 # Register your models here.
 # admin.site.unregister(CGUser)
 admin.site.register(CGUser, UserAdmin)
+admin.site.register(DBInterfaceModels.CharModel)
+admin.site.register(DBInterfaceModels.CharVersionModel)
+admin.site.register(DBInterfaceModels.GroupPermissions)
+admin.site.register(DBInterfaceModels.UserPermissions)
+admin.site.register(DBInterfaceModels.CharUsers)
+admit.site.register(DBInterfaceModels.CGGroup)

@@ -11,7 +11,7 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 """
 
 import os
-import jinja2
+# import jinja2
 from jinja2 import Environment
 from django.templatetags.static import static
 from django.urls import reverse
@@ -40,7 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'DBInterface.apps.DbinterfaceConfig',
+    'DBInterface.apps.DBInterfaceConfig',
     'CGSandbox',
 ]
 
@@ -63,6 +63,7 @@ def http_jinja_env(**options):
         'url': reverse,
     })
     return env
+
 
 TEMPLATES = [
     {
@@ -146,7 +147,7 @@ LOGGING = {
             'formatter': 'simple',
         },
     },
-    'formatters':{
+    'formatters': {
       'simple': {
           'format': '{levelname} {message}',
           'style': '{',
