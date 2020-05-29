@@ -16,6 +16,9 @@ class RELATED_MANAGER_TYPE(MANAGER_TYPE[_Z]):
     def add(self, *obs, bulk=True, through_defaults=None): ...
     # need to add some more
 
+class MyMeta:
+    default_permissions = ()
+
 
 logger = logging.getLogger('chargen.database')
 user_logger = logging.getLogger('chargen.database.users')
@@ -55,8 +58,8 @@ class CGUserManager(BaseUserManager):
         return user
 
 class CGUser(AbstractBaseUser):
-    class Meta:
-        default_permissions = ()
+    class Meta(MyMeta):
+        pass
     username: str = models.CharField(max_length=40, unique=True)
     USERNAME_FIELD = 'username'  # database field that is used as username in the login.
     REQUIRED_FIELDS = ['email']  # list of additional mandatory fields queried in the "manage.py createsuperuser" script.
@@ -117,8 +120,8 @@ class CGUser(AbstractBaseUser):
 
 
 class CGGroup(models.Model):
-    class Meta:
-        default_permissions = ()
+    class Meta(MyMeta):
+        pass
     name: str = models.CharField(max_length=150, unique=True, blank=False)
 
     objects: 'MANAGER_TYPE[CGGroup]'
@@ -153,18 +156,19 @@ def get_default_group() -> CGGroup:
     return all_group
 
 
-CHAR_NAME_MAX_LENGTH = 80
-CV_DESCRIPTION_MAX_LENGTH = 240
-MAX_INPUT_LENGTH = 200
-CHAR_DESCRIPTION_MAX_LENGTH = 240
+CHAR_NAME_MAX_LENGTH = 80  # max length of char name
+CHAR_DESCRIPTION_MAX_LENGTH = 240  # max length of char descriptions
+CV_DESCRIPTION_MAX_LENGTH = 240  # max length of char version descriptions
+MAX_INPUT_LENGTH = 200  # max length of (short) text field inputs
+KEY_MAX_LENGTH = 240  # max length of dict keys (for chars)
 
 class CharModel(models.Model):
     """
     Character stored in database. Note that a character consists of several versions, which are what hold most data.
     Non-versioned data involves only permissions and some display stuff.
     """
-    class Meta:
-        default_permissions = ()
+    class Meta(MyMeta):
+        pass
     name: str = models.CharField(max_length=CHAR_NAME_MAX_LENGTH)
     description: str = models.CharField(max_length=CHAR_DESCRIPTION_MAX_LENGTH, blank=True)
     max_version: int = models.PositiveIntegerField(default=1)
@@ -226,9 +230,8 @@ class CharVersionModel(models.Model):
     Data stored in the database for a char version. Note that many CharVersionModels belong to a single CharModel
     """
 
-    class Meta:
+    class Meta(MyMeta):
         get_latest_by = 'creation_time'
-        default_permissions = ()
 
     # Name of the char. This is included in CharVersionModel to allow renames.
     # If empty, we take the owning CharModel's name.
@@ -343,9 +346,7 @@ class CharVersionModel(models.Model):
 
 # permissions set on a user level. Do not use directly.
 class UserPermissionsForChar(models.Model):
-    class Meta:
-        # default_permissions is for Django's admin interface, unrelated to the permissions modeled by UserPermissions.
-        default_permissions = ()
+    class Meta(MyMeta):
         constraints = [
             models.UniqueConstraint(fields=['char', 'user'], name='m2muserperms'),
             models.CheckConstraint(check=models.Q(may_read__gte=models.F('may_write')), name='user_write_implies_read'),
@@ -381,9 +382,7 @@ class UserPermissionsForChar(models.Model):
 
 
 class GroupPermissionsForChar(models.Model):
-    class Meta:
-        # default_permissions is for Django's admin interface, unrelated to the permissions modeled by GroupPermissions.
-        default_permissions = ()
+    class Meta(MyMeta):
         constraints = [
             models.UniqueConstraint(fields=['char', 'group'], name='m2mgroupperms'),
             models.CheckConstraint(check=models.Q(may_read__gte=models.F('may_write')), name='group_write_implies_read'),
@@ -427,8 +426,7 @@ class CharUsers(models.Model):
         This includes indirect permissions through group membership and is synchronized with user-level and group-level
         permissions. Also stores other relevant data for the pair: at the moment, the last opened char version.
     """
-    class Meta:
-        default_permissions = ()
+    class Meta(MyMeta):
         constraints = [
             models.UniqueConstraint(fields=['char', 'user'], name='m2mcharuser'),
             models.CheckConstraint(check=models.Q(true_read_permission__gte=models.F('true_write_permission')), name='write_implies_read'),
@@ -523,8 +521,16 @@ class CharUsers(models.Model):
                 for user in users:
                     CharUsers.update_char_user(char=char, user=user)
 
+    # use this (or the shortcuts on CGChar, CharModel, CharVersionModel) exclusively as out-facing interface.
+
     @classmethod
     def user_may_read(cls, *, char: Union[CharModel, CharVersionModel], user: CGUser) -> bool:
+        """
+            Checks whether user has read access to char. This is the preferred interface to use.
+            (or the shortcuts in CGUser, CharModel, CharVersionModel)
+        """
+        if user.is_admin:
+            return True
         if isinstance(char, CharModel):
             return cls.objects.filter(char=char, user=user, true_read_permission=True).exists()
         else:
@@ -533,8 +539,39 @@ class CharUsers(models.Model):
 
     @classmethod
     def user_may_write(cls, *, char: Union[CharModel, CharVersionModel], user: CGUser) -> bool:
+        """
+            Checks whether user has read/write access to char. This is the preferred interface to use.
+            (or the shortcuts in CGUser, CharModel, CharVersionModel)
+        """
+
+        if user.is_admin:
+            return True
         if isinstance(char, CharModel):
             return cls.objects.filter(char=char, user=user, true_write_permission=True).exists()
         else:
             assert isinstance(char, CharVersionModel)
             return cls.objects.filter(char=char.owner, user=user, true_write_permission=True).exists()
+
+class DictEntry(models.Model):
+    class Meta(MyMeta):
+        abstract = True
+        constraints = [
+            models.UniqueConstraint(fields=['char_version', 'key'], name="unique_key_%(class)s"),
+            models.CheckConstraint(check=~models.Q(value=""), name="non_empty_values_%(class)s"),
+        ]
+        indexes = [
+            models.Index(fields=['char_version', 'key'], name="lookup_index_%(class)s"),
+        ]
+
+    char_version: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.CASCADE, null=False,
+                                                       related_name="%(class)s_set")
+    key: str = models.CharField(max_length=KEY_MAX_LENGTH, null=False)
+    value: str
+
+    objects: 'MANAGER_TYPE[DictEntry]'
+
+class ShortDictEntry(DictEntry):
+    value: str = models.CharField(max_length=MAX_INPUT_LENGTH, blank=True, null=False)  # Note that the DB will prevent saving null and "" entries
+
+class LongDictEntry(DictEntry):
+    value: str = models.TextField(blank=True, null=False)

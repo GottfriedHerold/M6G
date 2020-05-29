@@ -1,6 +1,8 @@
 from django.test import TestCase
 from .models import CGUser, CGGroup, CharVersionModel, CharModel, UserPermissionsForChar, GroupPermissionsForChar, get_default_group, CharUsers
 
+# TODO: May need to modify loggers.
+
 # Create your tests here.
 
 class UserAndCharManagement(TestCase):
@@ -31,4 +33,6 @@ class UserAndCharManagement(TestCase):
         char1_2 = CharVersionModel.objects.get(parent=char1_1, owner=char1)
         char2_1 = CharVersionModel.objects.get(parent=None, owner=char2)
         char3_1 = CharVersionModel.objects.get(parent=None, owner=char3)
+
+        group2 = CGGroup.create_group('group2', initial_users=[self.user1, self.user2])
 

@@ -185,6 +185,8 @@ class CharVersion:
         Note: If the lookup ends in an actual data source that has input data, the returned input string cannot be "".
 
         If the query string is not found, returns default value, which is ("", True) if not given.
+        (This default both unambiguously indicates "not found" and is also what we want to treat this case as-if in some
+        contexts)
 
         If the second return value is False, the first may be None or an arbitrary string.
         """
@@ -195,6 +197,10 @@ class CharVersion:
         # Note that get_input should not throw an exception when stores_input_data is False,
         # but rather return some value indicating error (None, "", or an error message string)
         return self.lists[where].get_input(query), self.lists[where].stores_input_data
+
+    def multi_get(self, queries: "Iterable[str]", default=None):
+        return [self.get(query, default=default) for query in queries]
+
 
     def get(self, query: str, *, locator: "Iterable" = None, default=None):
         """
