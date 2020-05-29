@@ -55,7 +55,7 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
         ('Permissions', {'fields': ('is_admin', 'is_active')}),
-        ('Groups', {'fields':('groups',)}),
+        ('Groups', {'fields': ('groups',)}),
     )
     add_fieldsets = (
         (None, {
@@ -67,12 +67,13 @@ class UserAdmin(BaseUserAdmin):
     ordering = ('username'),
     filter_horizontal = ()
 
+
 # Register your models here.
 # admin.site.unregister(CGUser)
 admin.site.register(CGUser, UserAdmin)
 admin.site.register(DBInterfaceModels.CharModel)
 admin.site.register(DBInterfaceModels.CharVersionModel)
-admin.site.register(DBInterfaceModels.GroupPermissions)
-admin.site.register(DBInterfaceModels.UserPermissions)
+admin.site.register(DBInterfaceModels.GroupPermissionsForChar)
+admin.site.register(DBInterfaceModels.UserPermissionsForChar)
 admin.site.register(DBInterfaceModels.CharUsers)
-admit.site.register(DBInterfaceModels.CGGroup)
+admin.site.register(DBInterfaceModels.CGGroup)

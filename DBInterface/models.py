@@ -1,22 +1,25 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 import logging
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.core.exceptions import ObjectDoesNotExist
-from typing import Optional, TypeVar, Generic, Iterator
-from datetime import datetime
+from typing import Optional, TypeVar, Generic, Iterator, Iterable, Union
+from datetime import datetime, timezone
 
 _Z = TypeVar('_Z')
+
 
 class MANAGER_TYPE(Generic[_Z], models.QuerySet, models.Manager):
     def __iter__(self) -> Iterator[_Z]: ...
 
 class RELATED_MANAGER_TYPE(MANAGER_TYPE[_Z]):
     def add(self, *obs, bulk=True, through_defaults=None): ...
+    # need to add some more
 
 
 logger = logging.getLogger('chargen.database')
 user_logger = logging.getLogger('chargen.database.users')
+char_logger = logging.getLogger('chargen.database.char')  # for logging char-based management
 
 # User model. Unfortunately, Django's default user model has its share of issues.
 
@@ -106,6 +109,13 @@ class CGUser(AbstractBaseUser):
     def has_module_perms(self, perm, obj=None) -> bool:
         return self.is_admin
 
+    def may_read_char(self, *, char: 'Union[CharModel, CharVersionModel]') -> bool:
+        return CharUsers.user_may_read(user=self, char=char)
+
+    def may_write_char(self, *, char: 'Union[CharModel, CharVersionModel]') -> bool:
+        return CharUsers.user_may_write(user=self, char=char)
+
+
 class CGGroup(models.Model):
     class Meta:
         default_permissions = ()
@@ -118,6 +128,17 @@ class CGGroup(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    @classmethod
+    def create_group(cls, name, *, initial_users: Iterable[CGUser]):
+        with transaction.atomic():
+            try:
+                new_group: CGGroup = cls.objects.create(name=name)
+            except IntegrityError:
+                raise ValueError("Group with name %s already exists" % name)
+            if initial_users:
+                new_group.users.add(*initial_users)
+        return new_group
 
 
 def get_default_group() -> CGGroup:
@@ -135,6 +156,7 @@ def get_default_group() -> CGGroup:
 CHAR_NAME_MAX_LENGTH = 80
 CV_DESCRIPTION_MAX_LENGTH = 240
 MAX_INPUT_LENGTH = 200
+CHAR_DESCRIPTION_MAX_LENGTH = 240
 
 class CharModel(models.Model):
     """
@@ -144,7 +166,7 @@ class CharModel(models.Model):
     class Meta:
         default_permissions = ()
     name: str = models.CharField(max_length=CHAR_NAME_MAX_LENGTH)
-    description: str = models.CharField(max_length=240, blank=True)
+    description: str = models.CharField(max_length=CHAR_DESCRIPTION_MAX_LENGTH, blank=True)
     max_version: int = models.PositiveIntegerField(default=1)
     creation_time: datetime = models.DateTimeField(auto_now_add=True)
     last_save: datetime = models.DateTimeField()
@@ -155,7 +177,7 @@ class CharModel(models.Model):
     users = models.ManyToManyField(CGUser, through='CharUsers', related_name='chars', related_query_name='char')
 
     objects: 'MANAGER_TYPE[CharModel]'
-    versions: 'RELATED_MANAGER_TYPE[versions]'  # reverse foreign key
+    versions: 'RELATED_MANAGER_TYPE[versions]'
     direct_user_permissions: 'RELATED_MANAGER_TYPE[UserPermissionsForChar]'
     group_permissions: 'RELATED_MANAGER_TYPE[GroupPermissionsForChar]'
     user_data_set: 'RELATED_MANAGER_TYPE[CharUsers]'
@@ -163,11 +185,41 @@ class CharModel(models.Model):
     def __str__(self) -> str:
         return str(self.name)
 
+    @classmethod
+    def create_char(cls, name: str, creator: CGUser, *, description: str = "") -> 'CharModel':
+        """
+            Creates a new char with the given name and description.
+            The creator is recorded as the creator and given read/write permissions.
+            You will need to create an initial char version by char.make_char_version(...)
+        :return: char
+        """
+        current_time: datetime = datetime.now(timezone.utc)
+        new_char = cls(name=name, description=description, max_version=1, last_save=current_time,
+                       last_change=current_time, creator=creator)
+        with transaction.atomic():
+            new_char.save()  # need to save at this point, because recomputing permissions may reload from db.
+            UserPermissionsForChar.objects.create(char=new_char, user=creator)
+        return new_char
+
+    def create_char_version(self, *args, **kwargs) -> 'CharVersionModel':
+        """
+            Creates a new char version for this char (shortcut as a method of CharModel)
+            Refer to CharVersionModel.create_char_version for details
+        """
+        if 'owner' in kwargs:
+            raise ValueError("Use class method CharVersionModel.create_char_version to change owner")
+        return CharVersionModel.create_char_version(*args, **kwargs, owner=self)
+
+    def may_be_read_by(self, *, user: CGUser) -> bool:
+        return CharUsers.user_may_read(char=self, user=user)
+
+    def may_be_written_by(self, *, user: CGUser) -> bool:
+        return CharUsers.user_may_write(char=self, user=user)
 
 
-def _error_on_delete():
-    logger.error("deleting parent CharVersion")
-    return None
+# def _error_on_delete():
+#    logger.error("deleting parent CharVersion")
+#    return None
 
 class CharVersionModel(models.Model):
     """
@@ -203,8 +255,9 @@ class CharVersionModel(models.Model):
     # parent version (null for root).
     # We have a pre_delete signal to ensure the tree structure.
     # This is done via a signal to ensure it works on bulk deletes
-    parent: 'Optional[CharVersionModel]' = models.ForeignKey('self', on_delete=models.DO_NOTHING, null=True, blank=True, related_name='children', related_query_name='child')
-    children: 'MANAGER_TYPE[CharVersionModel]'  # reverse foreign key
+    parent: 'Optional[CharVersionModel]' = models.ForeignKey('self', on_delete=models.DO_NOTHING, null=True, blank=True,
+                                                             related_name='children', related_query_name='child')
+    children: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse foreign key
     # JSON metadata to initialize the data sources
     data_sources: str = models.TextField(blank=True)
     # Edit mode
@@ -212,11 +265,80 @@ class CharVersionModel(models.Model):
     # owning char
     owner: CharModel = models.ForeignKey(CharModel, on_delete=models.CASCADE, related_name='versions', related_query_name='char_version')
 
+    objects: 'MANAGER_TYPE[CharVersionModel]'
+
     def __str__(self) -> str:
         if self.edit_mode:
             return self.name + " V" + str(self.char_version_number) + "+"
         else:
             return self.name + " V" + str(self.char_version_number)
+
+    @classmethod
+    def create_char_version(cls, *, version_name: str = None, description: str = None, edit_mode: bool = None,
+                            parent: 'Optional[CharVersionModel]' = None, data_sources=None, owner: CharModel = None):
+        """
+            Creates a new char version. Parameters are taken from parent char version unless overridden by arguments
+            to create_char_version. Note that both owner and parent need to be saved in the db.
+            If parent is None, owner needs to be set, this creates a root char version.
+            Note that this function may change owner / parent.owner
+        """
+        changed_owner = False
+        if parent:
+            assert isinstance(parent, cls)
+            new_version: CharVersionModel = cls.objects.get(pk=parent.pk)
+            new_version.pk = None
+            if version_name is not None:  # but may be ""
+                new_version.version_name = version_name
+            if data_sources is not None:  # but may be ""
+                new_version.data_sources = data_sources
+            if edit_mode is not None:  # but may be False
+                new_version.edit_mode = edit_mode
+            if description is not None:  # but may be ""
+                new_version.description = description
+            if new_version.edit_mode and parent.edit_mode:
+                raise ValueError("Can not create an edit char version from an edit char version")
+            new_version.edit_counter += 1
+            new_version.last_changed = datetime.now(timezone.utc)
+            if owner and new_version.owner != owner:  # new char from previous version
+                if new_version.edit_mode or parent.edit_mode:
+                    raise ValueError("Creating an initial char version for a new char from an old char version not possible in edit mode")
+                new_version.parent = None
+                new_version.owner = owner
+                new_version.char_version_number = owner.max_version
+                owner.max_version += 1  # not yet saved to db.
+                changed_owner = True
+            else:  # previous owner (the common case)
+                new_version.parent = parent
+                if not new_version.edit_mode:
+                    new_version.char_version_number = owner.max_version
+                    new_version.owner.max_version += 1
+                    changed_owner = True
+        else:  # No parent, so we create a brand new char version for the char given by owner
+            if not owner:
+                raise ValueError("Either parent or owner must be provided to create a char version")
+            version_name = version_name or ""
+            data_sources = data_sources or ""
+            description = description or ""
+            if edit_mode:
+                raise ValueError("Editing only allowed based on an existing char")
+
+            new_version: CharVersionModel = CharVersionModel(version_name=version_name, data_sources=data_sources,
+                                                             char_version_number=owner.max_version, last_changed=datetime.now(timezone.utc),
+                                                             description=description, edit_counter=1, parent=None,
+                                                             edit_mode=False, owner=owner)
+            new_version.owner.max_version += 1
+            changed_owner = True
+        with transaction.atomic():
+            new_version.save()
+            if changed_owner:
+                new_version.owner.save()
+        return new_version
+
+    def may_be_read_by(self, *, user: CGUser) -> bool:
+        return CharUsers.user_may_read(char=self, user=user)
+
+    def may_be_written_by(self, *, user: CGUser) -> bool:
+        return CharUsers.user_may_write(char=self, user=user)
 
 
 # permissions set on a user level. Do not use directly.
@@ -236,6 +358,27 @@ class UserPermissionsForChar(models.Model):
 
     objects: 'MANAGER_TYPE[UserPermissionsForChar]'
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        CharUsers.update_char_user(char=self.char, user=self.user)
+
+    @staticmethod
+    def user_permission_deleted_for_char_signal(sender: type, **kwargs):
+        assert sender is UserPermissionsForChar
+        instance: UserPermissionsForChar = kwargs['instance']
+        instance.may_write = False
+        instance.may_read = False
+        instance.save()
+
+    def __str__(self) -> str:
+        d = {'char_name': str(self.char), 'user_name': str(self.user)}
+        if self.may_write:
+            return "user-level write permission for char %(char_name)s and user %(user_name)s" % d
+        elif self.may_read:
+            return "user-level read permission for char %(char_name)s and user %(user_name)s" % d
+        else:
+            return "user-level empty permission for char %(char_name)s and user %(user_name)s" % d
+
 
 class GroupPermissionsForChar(models.Model):
     class Meta:
@@ -246,13 +389,37 @@ class GroupPermissionsForChar(models.Model):
             models.CheckConstraint(check=models.Q(may_read__gte=models.F('may_write')), name='group_write_implies_read'),
         ]
         indexes = [models.Index(fields=['char', 'group'])]
-    char: str = models.ForeignKey(CharModel, on_delete=models.CASCADE, related_name='group_permissions')
+    char: CharModel = models.ForeignKey(CharModel, on_delete=models.CASCADE, related_name='group_permissions')
     group: CGGroup = models.ForeignKey(CGGroup, on_delete=models.CASCADE, related_name='char_permissions')
     may_read: bool = models.BooleanField(default=True)
     may_write: bool = models.BooleanField(default=True)
 
     objects: 'MANAGER_TYPE[GroupPermissionsForChar]'
     affected_char_permissions: 'MANAGER_TYPE[CharUsers]'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        for user in self.group.users.all():
+            CharUsers.update_char_user(char=self.char, user=user)
+
+    @staticmethod  # pre-delete in signals.py
+    def group_permissions_deleted_for_char_signal(sender: type, **kwargs):
+        assert sender is GroupPermissionsForChar
+        instance: GroupPermissionsForChar = kwargs['instance']
+        user_logger.debug("Dropping permissions for group/char-pair: %s", instance)
+        instance.may_write = False
+        instance.may_read = False
+        instance.save()
+
+    def __str__(self) -> str:
+        d = {'char_name': str(self.char), 'group_name': str(self.group)}
+        if self.may_write:
+            return "group-level write permission for char %(char_name)s and group %(group_name)s" % d
+        elif self.may_read:
+            return "group-level read permission for char %(char_name)s and group %(group_name)s" % d
+        else:
+            return "group-level empty permission for char %(char_name)s and group %(group_name)s" % d
+
 
 class CharUsers(models.Model):
     """
@@ -264,15 +431,18 @@ class CharUsers(models.Model):
         default_permissions = ()
         constraints = [
             models.UniqueConstraint(fields=['char', 'user'], name='m2mcharuser'),
-            models.CheckConstraint(check=models.Q(read_permission__gte=models.F('write_permission')), name='write_implies_read'),
+            models.CheckConstraint(check=models.Q(true_read_permission__gte=models.F('true_write_permission')), name='write_implies_read'),
+            # This implies the above, but that's really an implementation detail.
+            models.CheckConstraint(check=models.Q(true_read_permission=True), name='can_always_read'),
         ]
         indexes = [models.Index(fields=['char', 'user'])]
-    char: str = models.ForeignKey(CharModel, on_delete=models.CASCADE, related_name='user_data_set')
+    char: CharModel = models.ForeignKey(CharModel, on_delete=models.CASCADE, related_name='user_data_set')
     user: CGUser = models.ForeignKey(CGUser, on_delete=models.CASCADE, related_name='char_data_set')
     opened_version: Optional[CharVersionModel] = models.ForeignKey(CharVersionModel, on_delete=models.SET_NULL, null=True, related_name='+')
     # name true_ is to indicate that it includes both user-level and group-level permissions
     true_read_permission: bool = models.BooleanField()  # will actually always be true if saved in db.
     true_write_permission: bool = models.BooleanField()
+
     # If user has permissions for char *because* user belongs to a group, this is recorded here,
     # i.e. group_reason is a group that is responsible for highest permission level.
     # If user-level permissions are responsible, this is null, if permissions via user and group are the same, we
@@ -300,7 +470,8 @@ class CharUsers(models.Model):
                 user_logger.info('Pre-existing permission')
                 create = False
             except ObjectDoesNotExist:
-                char_user = CharUsers(char=char, user=user, opened_version=None, true_read_permissions=False, true_write_permissions=False, group_reason=None)
+                char_user = CharUsers(char=char, user=user, opened_version=None, true_read_permission=False,
+                                      true_write_permission=False, group_reason=None)
                 user_logger.info('Created new permissions')
                 create = True
             try:
@@ -343,3 +514,27 @@ class CharUsers(models.Model):
                 user_logger.info('deleted pre-existing permissions object')
             user_logger.info('no permissions granted to user')
             return None
+
+    @staticmethod
+    def recompute_all_char_user_permissions():
+        with transaction.atomic():  # to guard against change of CGUsers.objects.all()
+            users = list(CGUser.objects.all())
+            for char in CharModel.objects.all():
+                for user in users:
+                    CharUsers.update_char_user(char=char, user=user)
+
+    @classmethod
+    def user_may_read(cls, *, char: Union[CharModel, CharVersionModel], user: CGUser) -> bool:
+        if isinstance(char, CharModel):
+            return cls.objects.filter(char=char, user=user, true_read_permission=True).exists()
+        else:
+            assert isinstance(char, CharVersionModel)
+            return cls.objects.filter(char=char.owner, user=user, true_read_permission=True).exists()
+
+    @classmethod
+    def user_may_write(cls, *, char: Union[CharModel, CharVersionModel], user: CGUser) -> bool:
+        if isinstance(char, CharModel):
+            return cls.objects.filter(char=char, user=user, true_write_permission=True).exists()
+        else:
+            assert isinstance(char, CharVersionModel)
+            return cls.objects.filter(char=char.owner, user=user, true_write_permission=True).exists()
