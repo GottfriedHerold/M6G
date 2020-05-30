@@ -1,3 +1,14 @@
+"""
+This module registers some functions that are called whenever some actions are performed on our models.
+This is done upon import. Note that it requires some parts of django to be ready, so it is imported
+from an is_ready function in apps.py.
+Importing it twice risks registering the functions twice, so this should NOT be imported anywhere else.
+
+In general, signals should be avoided!
+Document then in models.py.
+"""
+
+
 import logging
 from django.db.models.signals import post_save, pre_delete, m2m_changed
 from .models import CGUser, CharVersionModel, GroupPermissionsForChar, UserPermissionsForChar, CharUsers
@@ -16,6 +27,7 @@ signal_logger.info('Registering signals')
 def user_has_changed(sender: type, **kwargs):
     user_logger.info("A CGUser entry was saved to the database. Name: %s", kwargs['instance'])
 
+# noinspection PyUnusedLocal
 @receiver(pre_delete, sender=CharVersionModel)
 def ensure_rooted_tree(sender: type, **kwargs):
     instance = kwargs['instance']
@@ -30,10 +42,12 @@ def ensure_rooted_tree(sender: type, **kwargs):
 pre_delete.connect(GroupPermissionsForChar.group_permissions_deleted_for_char_signal, sender=GroupPermissionsForChar)
 pre_delete.connect(UserPermissionsForChar.user_permission_deleted_for_char_signal, sender=UserPermissionsForChar)
 
+# noinspection PyUnusedLocal
 @receiver(m2m_changed, sender=GroupPermissionsForChar)
 def update_group_permissions_for_char_m2m(sender: type, **kwargs):
     raise RuntimeError("Change group permissions by modifying GroupPermissionsForChar objects directly")
 
+# noinspection PyUnusedLocal
 @receiver(m2m_changed, sender=UserPermissionsForChar)
 def update_user_permissions_for_char_m2m(sender: type, **kwargs):
     raise RuntimeError("Change user permissions by modifying UserPermissionsForChar objects directly")
