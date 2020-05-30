@@ -18,7 +18,20 @@
     Each such node has an eval_ast function, where the children evaluate to 11 and 5. the root evaluates to 16.
 """
 
-from typing import TYPE_CHECKING
+# TODO: Some key features are still missing here, notably:
+# - $DIR() like functionalities that allow querying what key are present in the database.
+#   This is not really a feature of the browser but rather of data sources, as such information should
+#   be exposed via (read-only, for the user) __dir__ - like-entries in the database.
+# - optional arguments to GET that allows GET("a.b", with={a.c="xyy"}) queries to get the key a.b and evaluate it as-if
+#   the entry under a.c was "xyz". Might require turning GET into a core-constant to have variable argument number
+# - convenience functions to work with strings like "a.b.c" (converting to/from list of strings etc.)
+# - convenience functions to work with lists (map-reduce etc.), implement loops more easily etc.
+# - make error handling more usable (requires web-interface to test how it "feels like")
+
+# Concrete convenience functions will probably be added as one writes database-entries for a given set of RPG rules to
+# actually match demand.
+
+from typing import TYPE_CHECKING, Union
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -46,6 +59,9 @@ keywords = [
     'FUN',  # alternative: LAMBDA is also recognized. This is handled in the tokenizer code, not in this list.
     # 'LAMBDA', # For this, we want type = 'FUN', value = 'LAMBDA'
     'GET',
+    'IF',
+    'THEN',
+    'ELSE',
 ]
 
 _EMPTYSET = frozenset()
@@ -961,6 +977,12 @@ def p_expression_cond(p):
     p[0] = AST_Cond(p[3], p[5], p[7])
 
 
+#noinspection PySingleQuotedDocstring
+def p_expression_cond_if_then_else(p):
+     "expression : IF expression THEN expression ELSE expression"
+     p[0] = AST_Cond(p[2], p[4], p[6])
+
+
 # noinspection PySingleQuotedDocstring
 def p_expression_funname(p):
     "expression : FUNCNAME"
@@ -1221,20 +1243,31 @@ def p_functiondef(p):
 parser = yacc.yacc()
 
 
-def input_string_to_value(input_string: str):
+def input_string_to_value(input_string: str) -> Union[int, float, str, AST, DataError, None]:
+    """
+        Parses an input string that a user inputs and parses it either as a string, a number or a formula,
+        depending on whether it starts/ends with =, ", '
+        This is the 'default' interface to the parses.
+        Note that in some context, we may need to have a slightly different input format due to (un)escaping,
+        so we will need some other functions for other input data formats.
+
+        Returns either an int, string, float, AST (parsed formula), or a DataError object (for mis-parses) or None (for
+        the empty input string).
+    """
     if len(input_string) == 0:
         return None
-    # "STRING or "STRING" or 'STRING or 'STRING' all parse as strings
+    # "STRING or "STRING" or 'STRING or 'STRING' all parse as strings as well as STRING (the latter is handled below
+    # if no other rules match)
     if input_string[0] == '"' or input_string[0] == "'":
         if input_string[-1] == input_string[0]:
             return input_string[1:-1]
         else:
             return input_string[1:]
-    elif input_string[0] == '=':
+    elif input_string[0] == '=':  # everything starting with = is a formula, with the = itself not part of it
         try:
             result = parser.parse(input_string[1:])
-        except (SyntaxError, CGParseException) as e:
-            result = DataError(exception=e)  # TODO: Change? This easily creates reference cycles
+        except (SyntaxError, CGParseException) as e:  # TODO: better error handling
+            result = DataError(exception=e)  # TODO: Capture exception? (very expensive)
         return result
     elif re_number_int.fullmatch(input_string):
         return int(input_string)
@@ -1244,6 +1277,6 @@ def input_string_to_value(input_string: str):
         return input_string
 
 
-# for debugging.
+# for debugging only.
 if __name__ == '__main__':
     lex.runmain()

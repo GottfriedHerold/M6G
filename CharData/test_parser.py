@@ -141,6 +141,8 @@ def test_cond():
     assert evp("COND(2==5, 'a', 'b')") == 'b'
     assert evp("COND(TRUE, 'c', 1/0)") == 'c'
     assert evp("COND(FALSE, 1/0, 'c')") == 'c'
+    assert evp("IF 1==1 THEN 5 ELSE 4") == 5
+    assert evp("IF FALSE THEN '5' ELSE '4'") == '4'
 
 
 def test_modulo():
