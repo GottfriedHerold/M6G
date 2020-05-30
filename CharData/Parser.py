@@ -24,6 +24,7 @@
 #   be exposed via (read-only, for the user) __dir__ - like-entries in the database.
 # - optional arguments to GET that allows GET("a.b", with={a.c="xyy"}) queries to get the key a.b and evaluate it as-if
 #   the entry under a.c was "xyz". Might require turning GET into a core-constant to have variable argument number
+# - .x syntax as shorthand
 # - convenience functions to work with strings like "a.b.c" (converting to/from list of strings etc.)
 # - convenience functions to work with lists (map-reduce etc.), implement loops more easily etc.
 # - make error handling more usable (requires web-interface to test how it "feels like")
@@ -52,13 +53,14 @@ if TYPE_CHECKING:
 # keywords must be allcaps.
 
 keywords = [
-    'COND',
+    'COND',  # may turn into core_constant
     'OR',
     'AND',
     'NOT',
-    'FUN',  # alternative: LAMBDA is also recognized. This is handled in the tokenizer code, not in this list.
+    'FUN',  # alternative: LAMBDA is also recognized. This is handled in the tokenizer code, not in this list to
+            # to avoid having two separate token values.
     # 'LAMBDA', # For this, we want type = 'FUN', value = 'LAMBDA'
-    'GET',
+    'GET',  # may need turn into core constant
     'IF',
     'THEN',
     'ELSE',

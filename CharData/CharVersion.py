@@ -4,12 +4,12 @@ Note that characters are supposed to be versioned in a simple (non-branching) fa
 The main data that is used to hold the character is a list S = [S0,S1,S2,...] of dict-like data source objects.
 Its keys are PATHS of the form e.g. 'att.st', 'abil.zauberkunde.gfp_spent' (all lowercase, separated by dots)
 When looking up e.g. 'abil.zauberkunde.gfp_spent', we actually look for a value in this order:
-first, look up S0{abil.zauberkunde.gfp_spent}, then S1{abil.zauberkunde.gfp_spent], ...
-then  S0{abil.zauberkunde._all}, S1{abil.zauberkunde._all}, ...
-then  S0{abil.gfp_spent}, S1{abil.gfp_spent}, ...
-then  S0{abil._all}, S1{abil._all}, ...
-then  S0{gfp_spent}, S1{gfp?spent}, ...
-finally S0{_all}, S1{_all}, ...
+first, look up S0[abil.zauberkunde.gfp_spent], then S1[abil.zauberkunde.gfp_spent], ...
+then  S0[abil.zauberkunde._all], S1[abil.zauberkunde._all], ...
+then  S0[abil.gfp_spent], S1[abil.gfp_spent], ...
+then  S0[abil._all], S1[abil._all], ...
+then  S0[gfp_spent], S1[gfp_spent], ...
+finally S0[_all], S1[_all], ...
 We take the first match we find and return an arbitrary python object.
 
 The CharVersion class itself only takes care about managing these dict-like data sources and the lookup.
@@ -38,6 +38,10 @@ from . import CharExceptions
 _ALL_SUFFIX = "_all"
 
 class CharVersion:
+    """
+    This class models a set of data sources that makes up a character. Note that this is supposed to be subclassed
+    in order to add synchronization abilities with a database.
+    """
     def __init__(self, *, initial_lists: "List[CharDataSource]" = None, **kwargs):
         if initial_lists is None:
             self._lists = []
@@ -104,7 +108,14 @@ class CharVersion:
             if list_i.default_write:
                 self.default_target = i
 
+    # Some get/set functions require specifying a data source. This can be specified either by the where argument
+    # (which takes an integer as index into the list of data sources) or by target_type and/or target_desc.
+    # if no such argument is given at all, we fall back to a default data source, if one is marked as such.
+
     def get_target_index(self, target_type: "Optional[str]", target_desc: "Optional[str]"):
+        """
+        finds the index of a data source from target_type / target_desc. Mostly used internally.
+        """
         if target_type is None:
             if target_desc is None:
                 return self.default_target
@@ -117,6 +128,9 @@ class CharVersion:
                 return next(filter(lambda i: self.lists[i].dict_type == target_type and self.lists[i].description == target_desc, range(len(self.lists))), None)
 
     def get_data_source(self, where: "Optional[int]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> "CharDataSource":
+        """
+        retrieves the data source by where / target_type / target_desc
+        """
         if where is None:
             where = self.get_target_index(target_type, target_desc)
         if where is None:
@@ -124,6 +138,10 @@ class CharVersion:
         return self.lists[where]
 
     def set(self, key: str, value: "Any", where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
+        """
+        Sets data_source[key] to value for the data_source specified by where / target_type / target_desc.
+        Note that this is used for data sources that do NOT store input data and value is arbitrary python data.
+        """
         if where is None:
             where = self.get_target_index(target_type, target_desc)
         if isinstance(where, int):
@@ -135,6 +153,9 @@ class CharVersion:
         self.last_change = datetime.now(timezone.utc)
 
     def set_input(self, key: str, value: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
+        """
+        Like set(...) but value is a string that is to be parsed and evaluated.
+        """
         if where is None:
             where = self.get_target_index(target_type, target_desc)
         if isinstance(where, int):
@@ -146,6 +167,11 @@ class CharVersion:
         self.last_change = datetime.now(timezone.utc)
 
     def delete(self, key: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
+        """
+        Deletes data_source[key] where data_source is specified by where / target_type / target_desc.
+        Note that trying to deleting keys that do not exist in the data_source may trigger an exception.
+        (this is the default behaviour of python's del operator)
+        """
         if where is None:
             where = self.get_target_index(target_type, target_desc)
         if isinstance(where, int):
@@ -169,6 +195,16 @@ class CharVersion:
             raise LookupError
 
     def get_input(self, key: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> str:
+        """
+        Gets the input string that was used to set data_source[key] in the data_source specified by where /
+        target_type / target_desc.
+        Note about data_source behaviour:
+        If data_source supports input_lookup, but key is not present, this returns the empty string "".
+        If data_source does not support input_lookup, we return either None or some information string.
+        We do NOT raise an exception.
+
+        See also get_input_source for a version that determines data_source from the key.
+        """
         if where is None:
             where = self.get_target_index(target_type, target_desc)
         if isinstance(where, int):
@@ -207,12 +243,13 @@ class CharVersion:
         Obtain an element from the current CharVersion database by query name.
 
         locator should usually be None. It encodes the list or a generator of all results that match the query
-         name according to our lookup rules. This is overridden to implement $AUTO(QUERY) calls.
+        name according to our lookup rules. This is overridden to implement $AUTO(QUERY) calls.
 
         :param query: The key to query for.
         :param locator: iterable to implement lookup. Used to implement $Auto and function lookup from the parser.
         :param default: Default value returned if query is not found. If default is None, returns an error.
-        :return: database entry. DataError exception if key is not found.
+                        (in the form of a DataError object, not by raising an exception)
+        :return: database entry or DataError (as return type, not raised) if key is not found.
         """
         if locator is None:
             # print('Calling with ' + query + ' empty locator')
@@ -235,7 +272,7 @@ class CharVersion:
         # This is important because eval_ast may call get multiple times with the same remaining list.
         locator_iterator = iter(locator)
 
-        # TODO: Only copy into list if there are >=2 occurences of $AUTO
+        # TODO: Only copy into list if there are >=2 occurrences of $AUTO
         # TODO: Either create a buffered custom object (rather than a list)
         #       and/or just evaluate $AUTOs once per argument and pass them directly rather than CONTINUE_LOOKUP
         #       Note that this becomes complicated for arbitrary $AUTO - arguments
@@ -370,21 +407,27 @@ class CharVersion:
 
 
 class CharDataSource:
+    """
+    Abstract Base class for Char Data sources.
+    This implements some common behaviour and is supposed to be overridden.
+    """
     contains_restricted = True  # Data source may contain restricted keys. Not necessarily enforced.
     contains_unrestricted = True  # Data source may contain unrestricted keys.
+    # description and dict_type are string that describe the data source.
+    # If unique, CharVersion can look up the data source by this.
     description = "nondescript"
     dict_type = "user defined"
-    default_write = False  # Writes go into this data source by default
-    read_only = False  # Cannot write / delete
-    stores_input_data: bool  # stores input data
-    stores_parsed_data: bool  # stores parsed data
-    type_unique = False  # Only one data source with the given dict_type must be present in a CharVersion
+    default_write = False  # Writes go into this data source by default. At most one data source per CharVersion.
+    read_only = False  # Cannot write / delete if this is set.
+    stores_input_data: bool  # stores input data.
+    stores_parsed_data: bool  # stores parsed data.
+    type_unique = False  # Only one data source with the given dict_type must be present in a CharVersion.
 
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
     input_data: "Union[Mapping, MutableMapping]"  # self.storage is where input data is stored if stored_input_data is set
     parsed_data: "Union[Mapping, MutableMapping]"  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
 
-    input_parser = staticmethod(Parser.input_string_to_value)
+    input_parser = staticmethod(Parser.input_string_to_value)  # parser to transform input values to parsed_data.
 
     def _check_key(self, key: str) -> bool:
         """
@@ -405,6 +448,9 @@ class CharDataSource:
         return True
 
     def __contains__(self, key: str) -> bool:
+        """
+        Checks if key is contained in the data source
+        """
         if not self._check_key(key):
             return False
         if self.stores_input_data:
@@ -413,12 +459,19 @@ class CharDataSource:
             return key in self.parsed_data
 
     def __getitem__(self, key: str):
+        """
+        Gets the parsed item stored under this key.
+        """
         if self.stores_parsed_data:
             return self.parsed_data[key]
         else:
             return self.input_parser(self.input_data[key])
 
-    def __setitem__(self, key: str, value) -> None:
+    def __setitem__(self, key: str, value: Any) -> None:
+        """
+        Sets the ("parsed", i.e. raw python) value stored under key.
+        Note that if the data source stores input data, this function makes no sense.
+        """
         if not self._check_key(key):
             raise KeyError("Data source does not support storing this key")
         if self.stores_input_data or self.read_only:
@@ -426,6 +479,9 @@ class CharDataSource:
         self.parsed_data[key] = value
 
     def __delitem__(self, key: str) -> None:
+        """
+        Deletes the key from the data source. This assumes that the key was present beforehand.
+        """
         if not self._check_key(key):
             raise KeyError("Data source does not support deleting this key")
         if self.stores_parsed_data:
@@ -450,6 +506,10 @@ class CharDataSource:
                 return default
 
     def set_input(self, key: str, value: str) -> None:
+        """
+        Stores value (as an input string, to be parsed with input_parser) under key.
+        Storing an empty value will delete the key, if it was present before.
+        """
         if self.read_only:
             raise TypeError("Data source is read-only")
         if not self._check_key(key):
@@ -470,6 +530,9 @@ class CharDataSource:
 
 
 class CharDataSourceDict(CharDataSource):
+    """
+    Wrapper dicts (one for input data / one for parsed) -> CharDataSource. Used for testing.
+    """
     dict_type = "Char data source dict"
     stores_input_data = True
     stores_parsed_data = True
