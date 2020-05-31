@@ -11,8 +11,10 @@ def _test_dict_like_data_source(data_source: CharVersion.CharDataSource):
     assert "__x__" not in data_source
     if data_source.contains_unrestricted:
         test_key = "x.y"
+        test_key2 = "x.y.z"
     else:
         test_key = "__x__.y"
+        test_key2 = "__x__.y.z"
 
     if data_source.stores_input_data:
         data_source.set_input(test_key, "12")
@@ -25,6 +27,7 @@ def _test_dict_like_data_source(data_source: CharVersion.CharDataSource):
         data_source.set_input(test_key, "'abc")
         assert data_source.get_input(test_key) == "'abc"
         assert data_source[test_key] == "abc"
+        data_source.set_inputs({test_key: "3", test_key2: "4"})
 
         data_source.set_input(test_key, "")
         assert test_key not in data_source

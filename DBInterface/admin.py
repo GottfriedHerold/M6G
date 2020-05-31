@@ -9,6 +9,9 @@ import logging
 user_logger = logging.getLogger('chargen.database.users')
 
 class CGUserCreationForm(forms.ModelForm):
+    """
+    Used by Django's admin to create users.
+    """
     class Meta:
         model = CGUser
         fields = ('username', 'email')
@@ -18,7 +21,7 @@ class CGUserCreationForm(forms.ModelForm):
 
     def clean_password2(self):
         """
-            validation of input to password2. super().clean() calls self.clean_<formname>() for all form fields.
+        validation of input to password2. super().clean() calls self.clean_<formname>() for all form fields.
         """
         password1 = self.cleaned_data.get('password1')
         password2 = self.cleaned_data.get('password2')
@@ -38,6 +41,9 @@ class CGUserCreationForm(forms.ModelForm):
         return user
 
 class CGUserChangeForm(forms.ModelForm):
+    """
+    Settings for Django's admin interface to change users.
+    """
     class Meta:
         model = CGUser
         fields = ('username', 'email', 'password', 'is_active', 'is_admin', 'groups')
@@ -48,6 +54,10 @@ class CGUserChangeForm(forms.ModelForm):
 
 
 class UserAdmin(BaseUserAdmin):
+    """
+    Settings required to make Django's admin interface work with our custom CGUser class.
+    This is below with admin.site.register
+    """
     add_form = CGUserCreationForm
     form = CGUserChangeForm
     list_display = ('username', 'email', 'is_admin')
@@ -64,7 +74,7 @@ class UserAdmin(BaseUserAdmin):
         }),
     )
     search_fields = ('username', 'email')
-    ordering = ('username'),
+    ordering = 'username',
     filter_horizontal = ()
 
 

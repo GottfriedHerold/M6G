@@ -1,3 +1,8 @@
+"""
+This module defines the database models that are responsible for CharGenNG.
+Notably, we define some models for user authentication and for actual chars.
+"""
+
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 import logging
@@ -6,17 +11,34 @@ from django.core.exceptions import ObjectDoesNotExist
 from typing import Optional, TypeVar, Generic, Iterator, Iterable, Union
 from datetime import datetime, timezone
 
+# Only used for static type checking and to ensure my IDE's autocompletion works.
+# MANAGER_TYPE[ModelClass] is the type of ModelClass.objects.all() / ModelClass.objects
+# (we ignore the differences here)
+# django automatically adds an 'object' class attribute of this type to our database model classes.
 _Z = TypeVar('_Z')
-
-
 class MANAGER_TYPE(Generic[_Z], models.QuerySet, models.Manager):
     def __iter__(self) -> Iterator[_Z]: ...
 
+
+# When setting a foreign key attribute in model A to model B, django automatically adds an a_set attribute to B.
+# (name can be customized and usually is). Setting a type hint
+# a_set : RELATED_MANAGER_TYPE[A]
+# to B makes the static type checker a little less grumpy.
 class RELATED_MANAGER_TYPE(MANAGER_TYPE[_Z]):
+    # Note that such Manager classes are internally dynamically constructed from inner classes by Django, so we can't
+    # import and derive from it here; we rather set the methods manually...
     def add(self, *obs, bulk=True, through_defaults=None): ...
-    # need to add some more
+    # need to add some more functions that are specific to such related managers.
 
 class MyMeta:
+    """
+    default metaclass for our database models.
+    default_permissions = () basically disables the permission checking done by Django's pre-built admin interface.
+    This is completely unrelated to the CharModel-level permissions we manage for our users.
+    We do not use django's system, because Django only allows (without lots of work) to set permissions on a database-
+    table level, not on individual database entries. (=> a user can edit either all chars or none if using Django's
+    default system). Django's admin interface is only used by the admin, for whom all permissions are ignored anyway.
+    """
     default_permissions = ()
 
 
@@ -33,13 +55,17 @@ char_logger = logging.getLogger('chargen.database.char')  # for logging char-bas
 # Furthermore, the permissions management (what chars can be viewed/edited by a specific user) that Django provides (and
 # is used in the admin-interface) gives permissions on a per-model level and not per-instance. While there is an
 # interface for per-model, it is a stub as of Django 3.0 (essentially everything needs to be subclassed and overridden
-# with the parent class providing hardly any functionality).
+# with the parent class providing hardly any functionality. Also, it's too tightly integrated to Authentication Backends).
 # The following together with forms in admin.py is adapted from an example in the docs.
 
 class CGUserManager(BaseUserManager):
+    """
+    Manager class for CGUser (our user class).
+    """
     def create_user(self, username, email, password=None):
         """
-            Creates a standard (non-admin) user
+        Creates a standard (non-admin) user with given username, email and password.
+        Adds the newly created user to the "all users" group
         """
         if not username:
             raise ValueError('Username is empty')
@@ -51,6 +77,9 @@ class CGUserManager(BaseUserManager):
         return user
 
     def create_superuser(self, username, email, password=None):
+        """
+        creates a superuser. This is required to run manage.py createsuperuser
+        """
         user = self.create_user(username=username, email=email, password=password)
         user.is_admin = True
         user.save(using=self._db)
@@ -58,17 +87,21 @@ class CGUserManager(BaseUserManager):
         return user
 
 class CGUser(AbstractBaseUser):
+    """
+    User class.
+    """
     class Meta(MyMeta):
         pass
     username: str = models.CharField(max_length=40, unique=True)
     USERNAME_FIELD = 'username'  # database field that is used as username in the login.
     REQUIRED_FIELDS = ['email']  # list of additional mandatory fields queried in the "manage.py createsuperuser" script.
     objects: 'MANAGER_TYPE[CGUser]' = CGUserManager()  # object manager. We can't use the default one
-    is_active: bool = models.BooleanField(default=True)
-    is_admin: bool = models.BooleanField(default=False)
+    is_active: bool = models.BooleanField(default=True)  # internally expected by Django.
+    is_admin: bool = models.BooleanField(default=False)  # for the admin user
     email: str = models.EmailField(verbose_name='email address', max_length=255)
     groups: 'RELATED_MANAGER_TYPE[CGGroup]' = models.ManyToManyField('CGGroup', related_name='users')
 
+    # backlinks from other models that refer to CGUser go here:
     created_chars: 'RELATED_MANAGER_TYPE[CharModel]'
     directly_allowed_chars: 'RELATED_MANAGER_TYPE[CharModel]'
     direct_char_permissions: 'RELATED_MANAGER_TYPE[UserPermissionsForChar]'
@@ -102,6 +135,7 @@ class CGUser(AbstractBaseUser):
 
     @property
     def is_superuser(self) -> bool:
+        """Permissions override by Django's admin system"""
         return self.is_admin
 
     # noinspection PyUnusedLocal
@@ -113,9 +147,11 @@ class CGUser(AbstractBaseUser):
         return self.is_admin
 
     def may_read_char(self, *, char: 'Union[CharModel, CharVersionModel]') -> bool:
+        """Does this user have read access to char"""
         return CharUsers.user_may_read(user=self, char=char)
 
     def may_write_char(self, *, char: 'Union[CharModel, CharVersionModel]') -> bool:
+        """Does this user have read/write access to char"""
         return CharUsers.user_may_write(user=self, char=char)
 
 
@@ -166,15 +202,19 @@ class CharModel(models.Model):
     """
     Character stored in database. Note that a character consists of several versions, which are what hold most data.
     Non-versioned data involves only permissions and some display stuff.
+    (Notably, we store data here that we want to display on a webpage where the user selects a char she wants to view)
     """
     class Meta(MyMeta):
         pass
-    name: str = models.CharField(max_length=CHAR_NAME_MAX_LENGTH)
-    description: str = models.CharField(max_length=CHAR_DESCRIPTION_MAX_LENGTH, blank=True)
-    max_version: int = models.PositiveIntegerField(default=1)
-    creation_time: datetime = models.DateTimeField(auto_now_add=True)
-    last_save: datetime = models.DateTimeField()
-    last_change: datetime = models.DateTimeField()
+    name: str = models.CharField(max_length=CHAR_NAME_MAX_LENGTH)  # name of the char (may be changed in a version)
+    description: str = models.CharField(max_length=CHAR_DESCRIPTION_MAX_LENGTH, blank=True)  # short description
+    max_version: int = models.PositiveIntegerField(default=1)  # The next char version created gets this number attached to it as a (purely informational) version number.
+    creation_time: datetime = models.DateTimeField(auto_now_add=True)  # time of creation. Read-only and managed automatically.
+    # The difference between last_change and last_save is that edits in chars opened for editing get changed immediately
+    # upon user input (via Javascript), whereas last_save involves actually manually saving (which is implemented as an
+    # change in CharVersionsModels rather than a change in DictEntries)
+    last_save: datetime = models.DateTimeField()  # time of last change of char.
+    last_change: datetime = models.DateTimeField()  # time of last SAVE of char. CharVersions should change that upon change.
     creator: Optional[CGUser] = models.ForeignKey(CGUser, on_delete=models.SET_NULL, null=True, related_name='created_chars')
     user_level_permissions = models.ManyToManyField(CGUser, through='UserPermissionsForChar', related_name='directly_allowed_chars')
     group_level_permissions = models.ManyToManyField(CGGroup, through='GroupPermissionsForChar', related_name='allowed_chars')
@@ -207,7 +247,7 @@ class CharModel(models.Model):
 
     def create_char_version(self, *args, **kwargs) -> 'CharVersionModel':
         """
-            Creates a new char version for this char (shortcut as a method of CharModel)
+            Creates a new char version for this char (shortcut for a method of CharModel)
             Refer to CharVersionModel.create_char_version for details
         """
         if 'owner' in kwargs:
@@ -215,15 +255,17 @@ class CharModel(models.Model):
         return CharVersionModel.create_char_version(*args, **kwargs, owner=self)
 
     def may_be_read_by(self, *, user: CGUser) -> bool:
+        """
+        shorthand to check read permissions.
+        """
         return CharUsers.user_may_read(char=self, user=user)
 
     def may_be_written_by(self, *, user: CGUser) -> bool:
+        """
+        shorthand to check read/write permission.
+        """
         return CharUsers.user_may_write(char=self, user=user)
 
-
-# def _error_on_delete():
-#    logger.error("deleting parent CharVersion")
-#    return None
 
 class CharVersionModel(models.Model):
     """
@@ -249,11 +291,11 @@ class CharVersionModel(models.Model):
     description: str = models.CharField(max_length=CV_DESCRIPTION_MAX_LENGTH, blank=True)
     # Version number is used to construct a short name to refer to versions.
     char_version_number: int = models.PositiveIntegerField()
-    # Creation time of this char version. Set automatically.
+    # Creation time of this char version. Set automatically. Read-only.
     creation_time: datetime = models.DateTimeField(auto_now_add=True)
-    # Time of last edit. Handled automatically.
+    # Time of last edit. Updated automatically by Django every time we save to the database.
     last_changed: datetime = models.DateTimeField(auto_now=True)
-    # Incremented every time an edit is made.
+    # Should be incremented every time an edit is made. This may be useful to handle some concurrency issues more gracefully.
     edit_counter: int = models.PositiveIntegerField(default=1)
     # parent version (null for root).
     # We have a pre_delete signal to ensure the tree structure.

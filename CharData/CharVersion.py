@@ -237,7 +237,6 @@ class CharVersion:
     def multi_get(self, queries: "Iterable[str]", default=None):
         return [self.get(query, default=default) for query in queries]
 
-
     def get(self, query: str, *, locator: "Iterable" = None, default=None):
         """
         Obtain an element from the current CharVersion database by query name.
@@ -467,7 +466,7 @@ class CharDataSource:
         else:
             return self.input_parser(self.input_data[key])
 
-    def __setitem__(self, key: str, value: Any) -> None:
+    def __setitem__(self, key: str, value: 'Any') -> None:
         """
         Sets the ("parsed", i.e. raw python) value stored under key.
         Note that if the data source stores input data, this function makes no sense.
@@ -477,6 +476,13 @@ class CharDataSource:
         if self.stores_input_data or self.read_only:
             raise TypeError("Data source does not support storing parsed data")
         self.parsed_data[key] = value
+
+    def set_parsed_items(self, keyvals: dict) -> None:
+        """
+        sets several parsed data at once. May be overridden for efficiency
+        """
+        for key, val in keyvals.items():
+            self[key] = val
 
     def __delitem__(self, key: str) -> None:
         """
@@ -505,6 +511,13 @@ class CharDataSource:
             except KeyError:
                 return default
 
+    def get_inputs(self, keys: 'Iterable[str]', default=""):
+        """
+        Gets several input data at once. May be overwritten for more efficiency.
+        Returns a dict key:value with value as in get_input
+        """
+        return {key: self.get_input[key] for key in keys}
+
     def set_input(self, key: str, value: str) -> None:
         """
         Stores value (as an input string, to be parsed with input_parser) under key.
@@ -524,6 +537,13 @@ class CharDataSource:
                 self.input_data[key] = value
             if self.stores_parsed_data:
                 self.parsed_data[key] = self.input_parser(value)
+
+    def set_inputs(self, key_vals) -> None:
+        """
+        Sets several inputs at once. input is a dict {key, vals}
+        """
+        for key, val in key_vals.items():
+            self.set_input(key, val)
 
     def __str__(self) -> str:
         return "Data source of type " + self.dict_type + ": " + self.description
