@@ -466,6 +466,12 @@ class CharDataSource:
         else:
             return self.input_parser(self.input_data[key])
 
+    def get_items(self, keys: "Iterable[str]"):
+        """
+        Get multiple data. Returns a dict. May be overridden for efficiency.
+        """
+        return {key: self[key] for key in keys}
+
     def __setitem__(self, key: str, value: 'Any') -> None:
         """
         Sets the ("parsed", i.e. raw python) value stored under key.
@@ -516,7 +522,7 @@ class CharDataSource:
         Gets several input data at once. May be overwritten for more efficiency.
         Returns a dict key:value with value as in get_input
         """
-        return {key: self.get_input[key] for key in keys}
+        return {key: self.get_input(key) for key in keys}
 
     def set_input(self, key: str, value: str) -> None:
         """
