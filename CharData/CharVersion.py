@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 from . import Regexps
 from . import Parser
 from . import CharExceptions
+from . import ListBuffer
 
 _ALL_SUFFIX = "_all"
 
@@ -42,6 +43,14 @@ class CharVersion:
     This class models a set of data sources that makes up a character. Note that this is supposed to be subclassed
     in order to add synchronization abilities with a database.
     """
+
+    # these (object, not class-)attributes are possibly written to.
+    # To be overwritten by @property - objects in derived classes to tie to db.
+
+    creation_time: datetime  # only written to if we creation_time is explicitly passed.
+    last_change: datetime  # updated at each change
+    description: str
+
     def __init__(self, *, initial_lists: "List[CharDataSource]" = None, **kwargs):
         if initial_lists is None:
             self._lists = []
@@ -71,6 +80,12 @@ class CharVersion:
             self.description: str = kwargs["description"]
         self.update_metadata()
         return
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        return False
 
     @property
     def lists(self) -> "List[CharDataSource]":
@@ -109,10 +124,11 @@ class CharVersion:
                 self.default_target = i
 
     # Some get/set functions require specifying a data source. This can be specified either by the where argument
-    # (which takes an integer as index into the list of data sources) or by target_type and/or target_desc.
+    # (an integer as index into the list of data sources OR a data source itself) or by target_type and/or target_desc.
     # if no such argument is given at all, we fall back to a default data source, if one is marked as such.
+    # target_type / target_desc must only be used if where is not used
 
-    def get_target_index(self, target_type: "Optional[str]", target_desc: "Optional[str]"):
+    def get_target_index(self, target_type: "Optional[str]", target_desc: "Optional[str]") -> 'Optional[int]':
         """
         finds the index of a data source from target_type / target_desc. Mostly used internally.
         """
@@ -182,6 +198,16 @@ class CharVersion:
             del where[key]
         self.last_change = datetime.now(timezone.utc)
 
+    def bulk_delete(self, keys: "Iterable[str]", where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
+        """
+        Deletes data_source[key] for key in keys, where data source is specified by where / target_type / target_desc
+        (as in delete)
+        """
+        if where is None:
+            where = self.get_target_index(target_type, target_desc)
+        for key in keys:
+            self.delete(key, where)  # No need to pass target_type / target_desc
+
     def find_query(self, key: str, *, indices: "Optional[Iterable[int]]" = None) -> "Tuple[str, int]":
         """
         Find where a given (non-function) query string is located in self.lists
@@ -234,8 +260,8 @@ class CharVersion:
         # but rather return some value indicating error (None, "", or an error message string)
         return self.lists[where].get_input(query), self.lists[where].stores_input_data
 
-    def multi_get(self, queries: "Iterable[str]", default=None):
-        return [self.get(query, default=default) for query in queries]
+    def bulk_get(self, queries: "Iterable[str]", default=None):
+        return {key: self.get(key, default=default) for key in queries}
 
     def get(self, query: str, *, locator: "Iterable" = None, default=None):
         """
@@ -252,7 +278,7 @@ class CharVersion:
         """
         if locator is None:
             # print('Calling with ' + query + ' empty locator')
-            # This creates an generator, that yields all matches for the query key according to our lookup rules.
+            # This creates a generator that yields all matches for the query key according to our lookup rules.
             locator = self.find_lookup(query)
         # else:
             # print('Calling with ' + query + ' locator= ' + str(locator))
@@ -271,12 +297,6 @@ class CharVersion:
         # This is important because eval_ast may call get multiple times with the same remaining list.
         locator_iterator = iter(locator)
 
-        # TODO: Only copy into list if there are >=2 occurrences of $AUTO
-        # TODO: Either create a buffered custom object (rather than a list)
-        #       and/or just evaluate $AUTOs once per argument and pass them directly rather than CONTINUE_LOOKUP
-        #       Note that this becomes complicated for arbitrary $AUTO - arguments
-        #       and furthermore $AUTO is always evaluated even if all occurrences in the AST are in dead code.
-
         try:
             # where is the index of the list where we found the match, located_key is the key within that list.
             # Often, located_key == query, but located_key may be the fallback key that was actually found according
@@ -293,9 +313,12 @@ class CharVersion:
         # without = are stored directly, not as ASTs.
         if isinstance(ret, Parser.AST):
             needs_env = ret.needs_env
-            context = {'Name': located_key, 'Query': query}
-            if Parser.CONTINUE_LOOKUP in needs_env:
-                context[Parser.CONTINUE_LOOKUP] = list(locator_iterator)
+            context = {'Name': located_key,
+                       'Query': query,
+                       Parser.CONTINUE_LOOKUP: ListBuffer.LazyIterList(locator_iterator),
+                       }
+            # if Parser.CONTINUE_LOOKUP in needs_env:
+            # context[Parser.CONTINUE_LOOKUP] = list(locator_iterator)
                 # print('evaluating with context= ' + str(context))
             assert needs_env <= context.keys()
             try:
@@ -466,7 +489,7 @@ class CharDataSource:
         else:
             return self.input_parser(self.input_data[key])
 
-    def get_items(self, keys: "Iterable[str]"):
+    def bulk_get_items(self, keys: "Iterable[str]"):
         """
         Get multiple data. Returns a dict. May be overridden for efficiency.
         """
@@ -483,7 +506,7 @@ class CharDataSource:
             raise TypeError("Data source does not support storing parsed data")
         self.parsed_data[key] = value
 
-    def set_parsed_items(self, keyvals: dict) -> None:
+    def bulk_set_items(self, keyvals: dict) -> None:
         """
         sets several parsed data at once. May be overridden for efficiency
         """
@@ -501,6 +524,13 @@ class CharDataSource:
         if self.stores_input_data:
             del self.input_data[key]
 
+    def bulk_del_items(self, keys:"Iterable[str]") -> None:
+        """
+        Deletes the keys from the data source. Works like __delitem__. May be overridden for efficiency.
+        """
+        for key in keys:
+            del self[key]
+
     def get_input(self, key: str, default="") -> "Optional[str]":
         """
         Gets the input data associated to the key, or default = "" if not found.
@@ -517,7 +547,7 @@ class CharDataSource:
             except KeyError:
                 return default
 
-    def get_inputs(self, keys: 'Iterable[str]', default=""):
+    def bulk_get_inputs(self, keys: 'Iterable[str]', default=""):
         """
         Gets several input data at once. May be overwritten for more efficiency.
         Returns a dict key:value with value as in get_input
@@ -544,7 +574,7 @@ class CharDataSource:
             if self.stores_parsed_data:
                 self.parsed_data[key] = self.input_parser(value)
 
-    def set_inputs(self, key_vals) -> None:
+    def bulk_set_inputs(self, key_vals: dict) -> None:
         """
         Sets several inputs at once. input is a dict {key, vals}
         """

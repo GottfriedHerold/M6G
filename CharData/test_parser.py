@@ -236,3 +236,8 @@ def test_lookups(empty3cv: 'CharVersion.CharVersion'):
     lookup = empty3cv.get('lookup')
     assert lookup('fff') == 9
     assert lookup('x.y.c') == ['x.c', 'c']
+
+    l3set_from_string('ref', '1')
+    l2set_from_string('ref', '=$AUTO + $AUTO')
+    l1set_from_string('ref', '=$AUTO + $AUTO + 10')
+    assert empty3cv.get('ref') == 14

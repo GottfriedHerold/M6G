@@ -27,9 +27,9 @@ def _test_dict_like_data_source(data_source: CharVersion.CharDataSource):
         data_source.set_input(test_key, "'abc")
         assert data_source.get_input(test_key) == "'abc"
         assert data_source[test_key] == "abc"
-        data_source.set_inputs({test_key: "3", test_key2: "'4"})
-        assert data_source.get_inputs((test_key, test_key2)) == {test_key: "3", test_key2: "'4"}
-        assert data_source.get_items((test_key, test_key2)) == {test_key: 3, test_key2: "4"}
+        data_source.bulk_set_inputs({test_key: "3", test_key2: "'4"})
+        assert data_source.bulk_get_inputs((test_key, test_key2)) == {test_key: "3", test_key2: "'4"}
+        assert data_source.bulk_get_items((test_key, test_key2)) == {test_key: 3, test_key2: "4"}
 
         data_source.set_input(test_key, "")
         assert test_key not in data_source
@@ -50,8 +50,8 @@ def _test_dict_like_data_source(data_source: CharVersion.CharDataSource):
         assert data_source[test_key] == 1
         del data_source[test_key]
         assert test_key not in data_source
-        data_source.set_parsed_items({test_key: 5, test_key2: "6"})
-        assert data_source.get_items((test_key, test_key2)) == {test_key: 5, test_key2: "6"}
+        data_source.bulk_set_items({test_key: 5, test_key2: "6"})
+        assert data_source.bulk_get_items((test_key, test_key2)) == {test_key: 5, test_key2: "6"}
 
 
 def test_data_source_dict():
