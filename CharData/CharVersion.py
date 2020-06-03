@@ -22,19 +22,23 @@ do not edit the data source object directly, but through methods provided by Cha
 (This is because CharVersion might introduce caching in the future)
 """
 
-from typing import TYPE_CHECKING
+# from typing import TYPE_CHECKING
 
 from datetime import datetime, timezone
 # from collections import UserDict
-if TYPE_CHECKING:
-    from typing import List, Optional, Union, Any, Tuple, Generator, Iterable  # Only used when TYPE_CHECKING.
-    from collections.abc import MutableMapping, Mapping  # Only used when TYPE_CHECKING
+# if TYPE_CHECKING:
+from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict
+from collections.abc import MutableMapping, Mapping
 
 # import itertools
 from . import Regexps
 from . import Parser
 from . import CharExceptions
 from . import ListBuffer
+from functools import wraps
+
+_Ret_Type = TypeVar("_Ret_Type")
+_Arg_Type = TypeVar("_Arg_Type")
 
 _ALL_SUFFIX = "_all"
 
@@ -128,7 +132,7 @@ class CharVersion:
     # if no such argument is given at all, we fall back to a default data source, if one is marked as such.
     # target_type / target_desc must only be used if where is not used
 
-    def get_target_index(self, target_type: "Optional[str]", target_desc: "Optional[str]") -> 'Optional[int]':
+    def get_target_index(self, target_type: Optional[str], target_desc: Optional[str]) -> Optional[int]:
         """
         finds the index of a data source from target_type / target_desc. Mostly used internally.
         """
@@ -143,72 +147,76 @@ class CharVersion:
             else:
                 return next(filter(lambda i: self.lists[i].dict_type == target_type and self.lists[i].description == target_desc, range(len(self.lists))), None)
 
-    def get_data_source(self, where: "Optional[int]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> "CharDataSource":
-        """
-        retrieves the data source by where / target_type / target_desc
-        """
-        if where is None:
-            where = self.get_target_index(target_type, target_desc)
-        if where is None:
-            raise LookupError("Could not find requested data source.")
-        return self.lists[where]
+    # @staticmethod -- this does not work due to subtle details of how class creation works. Calling action unbound does the trick.
+    def act_on_data_source(action: Callable[..., _Ret_Type]) -> Callable[..., _Ret_Type]:
+        @wraps(action)
+        def _inner(self: "CharVersion", *args, where: "Union[int, None, CharDataSource]" = None, target_type: Optional[str] = None, target_desc: Optional[str] = None, **kwargs) -> _Ret_Type:
+            if where is None:
+                where = self.get_target_index(target_type, target_desc)
+            if isinstance(where, int):
+                return action(self, self.lists[where], *args, **kwargs)
+            else:
+                if where not in self.lists:
+                    raise LookupError("Invalid data source: Not in this CharVersion's data list.")
+                return action(self, where, *args, **kwargs)
+        return _inner
 
-    def set(self, key: str, value: "Any", where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
-        """
-        Sets data_source[key] to value for the data_source specified by where / target_type / target_desc.
-        Note that this is used for data sources that do NOT store input data and value is arbitrary python data.
-        """
-        if where is None:
-            where = self.get_target_index(target_type, target_desc)
-        if isinstance(where, int):
-            self.lists[where][key] = value
-        else:
-            if where not in self.lists:
-                raise LookupError("Could not find target data source")
-            where[key] = value
+    @act_on_data_source
+    def get_data_source(self, source):
+        return source
+
+    @act_on_data_source
+    def set(self, source: "CharDataSource", key: str, value: object) -> None:
+        source[key] = value
         self.last_change = datetime.now(timezone.utc)
 
-    def set_input(self, key: str, value: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
-        """
-        Like set(...) but value is a string that is to be parsed and evaluated.
-        """
-        if where is None:
-            where = self.get_target_index(target_type, target_desc)
-        if isinstance(where, int):
-            self.lists[where].set_input(key, value)
-        else:
-            if where not in self.lists:
-                raise LookupError("Could not find target data source")
-            where.set_input(key, value)
+    @act_on_data_source
+    def bulk_set(self, source: "CharDataSource", key_vals: Dict[str, object]) -> None:
+        source.bulk_set_items(key_vals)
         self.last_change = datetime.now(timezone.utc)
 
-    def delete(self, key: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
+    @act_on_data_source
+    def set_input(self, source: "CharDataSource", key: str, value: str) -> None:
+        source.set_input(key, value)
+        self.last_change = datetime.now(timezone.utc)
+
+    @act_on_data_source
+    def bulk_set_input(self, source: "CharDataSource", key_vals: Dict[str, str]) -> None:
+        source.bulk_set_inputs(key_vals)
+
+    @act_on_data_source
+    def delete(self, source: "CharDataSource", key: str) -> None:
         """
         Deletes data_source[key] where data_source is specified by where / target_type / target_desc.
-        Note that trying to deleting keys that do not exist in the data_source may trigger an exception.
-        (this is the default behaviour of python's del operator)
+        Trying to deleting keys that do not exist in the data_source may trigger an exception, as per Python's default.
         """
-        if where is None:
-            where = self.get_target_index(target_type, target_desc)
-        if isinstance(where, int):
-            del self.lists[where][key]
-        else:
-            if where not in self.lists:
-                raise LookupError("Could not find target data source")
-            del where[key]
+        del source[key]
         self.last_change = datetime.now(timezone.utc)
 
-    def bulk_delete(self, keys: "Iterable[str]", where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> None:
-        """
-        Deletes data_source[key] for key in keys, where data source is specified by where / target_type / target_desc
-        (as in delete)
-        """
-        if where is None:
-            where = self.get_target_index(target_type, target_desc)
-        for key in keys:
-            self.delete(key, where)  # No need to pass target_type / target_desc
+    @act_on_data_source
+    def bulk_delete(self, source: "CharDataSource", keys: Iterable[str]) -> None:
+        source.bulk_del_items(keys)
+        self.last_change = datetime.now(timezone.utc)
 
-    def find_query(self, key: str, *, indices: "Optional[Iterable[int]]" = None) -> "Tuple[str, int]":
+    @act_on_data_source
+    def get_input(self, source: "CharDataSource", key: str, default: str = "") -> str:
+        """
+        Gets the input string that was used to set data_source[key] in the data_source specified by where / target_type / target_desc.
+
+        Note about data_source behaviour:
+        If data_source supports input_lookup, but key is not present, this returns default (empty string unless specified).
+        If data_source does not support input_lookup, we return either None or some information string.
+        We do NOT raise an exception.
+
+        See also get_input_source for a version that determines data_source from the key.
+        """
+        return source.get_input(key, default=default)
+
+    @act_on_data_source
+    def bulk_get_inputs(self, source: "CharDataSource", keys: Iterable[str], default: str = "") -> Dict[str, str]:
+        return source.bulk_get_inputs(keys, default=default)
+
+    def find_query(self, key: str, *, indices: Optional[Iterable[int]] = None) -> Tuple[str, int]:
         """
         Find where a given (non-function) query string is located in self.lists
         :param key: query string
@@ -220,27 +228,7 @@ class CharVersion:
         except StopIteration:
             raise LookupError
 
-    def get_input(self, key: str, where: "Union[int, None, CharDataSource]" = None, *, target_type: "Optional[str]" = None, target_desc: "Optional[str]" = None) -> str:
-        """
-        Gets the input string that was used to set data_source[key] in the data_source specified by where /
-        target_type / target_desc.
-        Note about data_source behaviour:
-        If data_source supports input_lookup, but key is not present, this returns the empty string "".
-        If data_source does not support input_lookup, we return either None or some information string.
-        We do NOT raise an exception.
-
-        See also get_input_source for a version that determines data_source from the key.
-        """
-        if where is None:
-            where = self.get_target_index(target_type, target_desc)
-        if isinstance(where, int):
-            return self.lists[where].get_input(key)
-        else:
-            if where not in self.lists:
-                raise LookupError("Could not find data source")
-            return where.get_input(key)
-
-    def get_input_source(self, key: str, *, default=("", True)) -> "Tuple[str, bool]":
+    def get_input_source(self, key: str, *, default=("", True)) -> Tuple[str, bool]:
         """
         Retrieves the input source string for a given query string key as first return value.
         The second return value indicates whether the data source where lookup ends up has input data at all.
@@ -258,12 +246,15 @@ class CharVersion:
             return default
         # Note that get_input should not throw an exception when stores_input_data is False,
         # but rather return some value indicating error (None, "", or an error message string)
-        return self.lists[where].get_input(query), self.lists[where].stores_input_data
+        return self.get_input(query, where=where), self.lists[where].stores_input_data
 
-    def bulk_get(self, queries: "Iterable[str]", default=None):
+    def bulk_get_input_sources(self, keys: str, *, default=("", True)) -> Dict[str, Tuple[str, bool]]:
+        return {key: self.get_input_source(key, default=default) for key in keys}
+
+    def bulk_get(self, queries: Iterable[str], default=None) -> Dict[str, Any]:
         return {key: self.get(key, default=default) for key in queries}
 
-    def get(self, query: str, *, locator: "Iterable" = None, default=None):
+    def get(self, query: str, *, locator: Iterable = None, default=None) -> Any:
         """
         Obtain an element from the current CharVersion database by query name.
 
@@ -283,19 +274,20 @@ class CharVersion:
         # else:
             # print('Calling with ' + query + ' locator= ' + str(locator))
 
-        # brittle: whether get mutates the input locator depends on the type of locator.
-        # Namely, if locator is an iterator, it does. If locator is a list, it does not.
-        # get is used with both cases and we actually NEED that guarantee sometimes.
+        # Note: We have to take care about modifications to locator.
+        #
+        # The issue is the following: Normally, we just need to take the first output from iterator. Call the
+        # rest of the iterator its tail.
+        # However, if this output is an AST like parse('=$AUTO + $AUTO'), evaluation of that will recursively call
+        # get with iterator set to the tail, TWICE. We cannot guarantee that arbitrary iterables support being iterated
+        # over twice (lists support that, generator expressions don't). In general, iteration mutates the iterable.
+        # We could copy tail into a list, but iterating locator is generally very expensive, so we only wish to do that
+        # if needed.
+        # For that reason, we copy the tail into a ListBuffer.LazyIterList object that wraps locator into a buffered
+        # iterable/iterator that supports multiple independent iterators and pass it to the AST evaluation.
 
-        # More precisely, locator may be a list or a generator that holds the lookup matches for the query.
-        # In the generator case, locator_iterator == locator and the following try...except block will forward the
-        # generator once (unless empty) to find the first match and modify both locator_iterator and locator.
-        # If Parser.CONTINUE_LOOKUP is set in ret.needs_env, the remaining matches
-        # are copied into a list such that eval_ast can recursively call get with locator = remaining list.
-        # In case locator is a list, locator_iterator != locator: locator_iterator is just an index into locator
-        # and the try...except block will not modify locator.
-        # This is important because eval_ast may call get multiple times with the same remaining list.
-        locator_iterator = iter(locator)
+        locator_iterator = iter(locator)  # If locator is a ListBuffer.LazyIterList, this actually creates a copy.
+        # This copying is actually not necessary, but works.
 
         try:
             # where is the index of the list where we found the match, located_key is the key within that list.
@@ -312,14 +304,13 @@ class CharVersion:
         # If ret is an AST, we need to evaluate it (otherwise, we return the result directly). Note that string literals
         # without = are stored directly, not as ASTs.
         if isinstance(ret, Parser.AST):
-            needs_env = ret.needs_env
+            needs_env = ret.needs_env  # TODO: We may drop needs_env completely
             context = {'Name': located_key,
                        'Query': query,
                        Parser.CONTINUE_LOOKUP: ListBuffer.LazyIterList(locator_iterator),
                        }
             # if Parser.CONTINUE_LOOKUP in needs_env:
-            # context[Parser.CONTINUE_LOOKUP] = list(locator_iterator)
-                # print('evaluating with context= ' + str(context))
+            #     context[Parser.CONTINUE_LOOKUP] = list(locator_iterator)
             assert needs_env <= context.keys()
             try:
                 ret = ret.eval_ast(self, context)
@@ -329,7 +320,7 @@ class CharVersion:
                 ret = CharExceptions.DataError("Error evaluating " + located_key, exception=e)  # TODO: Keep exception?
         return ret
 
-    def lookup_candidates(self, query: str, *, restricted: bool = None, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
+    def lookup_candidates(self, query: str, *, restricted: bool = None, indices: Iterable[int] = None) -> Generator[Tuple[str, int], None, None]:
         """
         generator that yields all possible candidates for a given query string, implementing our lookup rules.
         The results are pairs (key, index), where index is an index into CharVersion.lists and key is the
@@ -388,7 +379,7 @@ class CharVersion:
                 yield search_key, j
         return
 
-    def function_candidates(self, query: str, *, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
+    def function_candidates(self, query: str, *, indices: Iterable[int] = None) -> Generator[Tuple[str, int], None, None]:
         """
         Obtains a list of candidate positions for a function name lookup for query.upper()
         Returns pairs (key, index into lists)
@@ -409,23 +400,32 @@ class CharVersion:
         for j in indices2:
             yield s, j
 
-    def has_value(self, pair: "Tuple[str, int]") -> bool:
+    def has_value(self, pair: Tuple[str, int]) -> bool:
         """Check whether candidate pair (as output by function_candidates or lookup_candidates) actually exists"""
         return pair[0] in self.lists[pair[1]]
 
-    def find_lookup(self, query: str, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
+    def find_lookup(self, query: str, indices: Iterable[int] = None) -> Generator[Tuple[str, int], None, None]:
         """
         yield all candidate pairs (lookup_key, index into self.lists) of candidates that match query according
         to our lookup rules for database keys a.b.c
         """
         yield from filter(self.has_value, self.lookup_candidates(query, indices=indices))
 
-    def find_function(self, query: str, indices: "Iterable[int]" = None) -> "Generator[Tuple[str, int], None, None]":
+    def find_function(self, query: str, indices: Iterable[int] = None) -> Generator[Tuple[str, int], None, None]:
         """
         yield all candidate pairs (lookup_key, index into self.lists) of candidates that match query according
         to our lookup rules for function queries FUNCTION
         """
         yield from filter(self.has_value, self.function_candidates(query, indices=indices))
+
+    def bulk_process(self, actions: list) -> dict:
+        """
+        This processes multiple get/set/delete actions at once. Note that there is no guarantee about order.
+
+        :param actions:
+        :return:
+        """
+        raise NotImplementedError
 
 
 class CharDataSource:
@@ -433,17 +433,17 @@ class CharDataSource:
     Abstract Base class for Char Data sources.
     This implements some common behaviour and is supposed to be overridden.
     """
-    contains_restricted = True  # Data source may contain restricted keys. Not necessarily enforced.
-    contains_unrestricted = True  # Data source may contain unrestricted keys.
+    contains_restricted: bool = True  # Data source may contain restricted keys. Not necessarily enforced.
+    contains_unrestricted: bool = True  # Data source may contain unrestricted keys.
     # description and dict_type are string that describe the data source.
     # If unique, CharVersion can look up the data source by this.
-    description = "nondescript"
-    dict_type = "user defined"
-    default_write = False  # Writes go into this data source by default. At most one data source per CharVersion.
-    read_only = False  # Cannot write / delete if this is set.
+    description: str = "nondescript"
+    dict_type: str = "user defined"
+    default_write: bool = False  # Writes go into this data source by default. At most one data source per CharVersion.
+    read_only: bool = False  # Cannot write / delete if this is set.
     stores_input_data: bool  # stores input data.
     stores_parsed_data: bool  # stores parsed data.
-    type_unique = False  # Only one data source with the given dict_type must be present in a CharVersion.
+    type_unique: bool = False  # Only one data source with the given dict_type must be present in a CharVersion.
 
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
     input_data: "Union[Mapping, MutableMapping]"  # self.storage is where input data is stored if stored_input_data is set
@@ -480,7 +480,7 @@ class CharDataSource:
         else:
             return key in self.parsed_data
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> Any:
         """
         Gets the parsed item stored under this key.
         """
@@ -489,13 +489,13 @@ class CharDataSource:
         else:
             return self.input_parser(self.input_data[key])
 
-    def bulk_get_items(self, keys: "Iterable[str]"):
+    def bulk_get_items(self, keys: Iterable[str]) -> Dict[str, Any]:
         """
         Get multiple data. Returns a dict. May be overridden for efficiency.
         """
         return {key: self[key] for key in keys}
 
-    def __setitem__(self, key: str, value: 'Any') -> None:
+    def __setitem__(self, key: str, value: object) -> None:
         """
         Sets the ("parsed", i.e. raw python) value stored under key.
         Note that if the data source stores input data, this function makes no sense.
@@ -506,11 +506,11 @@ class CharDataSource:
             raise TypeError("Data source does not support storing parsed data")
         self.parsed_data[key] = value
 
-    def bulk_set_items(self, keyvals: dict) -> None:
+    def bulk_set_items(self, key_vals: Dict[str, object]) -> None:
         """
         sets several parsed data at once. May be overridden for efficiency
         """
-        for key, val in keyvals.items():
+        for key, val in key_vals.items():
             self[key] = val
 
     def __delitem__(self, key: str) -> None:
@@ -524,14 +524,14 @@ class CharDataSource:
         if self.stores_input_data:
             del self.input_data[key]
 
-    def bulk_del_items(self, keys:"Iterable[str]") -> None:
+    def bulk_del_items(self, keys: Iterable[str]) -> None:
         """
         Deletes the keys from the data source. Works like __delitem__. May be overridden for efficiency.
         """
         for key in keys:
             del self[key]
 
-    def get_input(self, key: str, default="") -> "Optional[str]":
+    def get_input(self, key: str, default="") -> Optional[str]:
         """
         Gets the input data associated to the key, or default = "" if not found.
 
@@ -547,12 +547,12 @@ class CharDataSource:
             except KeyError:
                 return default
 
-    def bulk_get_inputs(self, keys: 'Iterable[str]', default=""):
+    def bulk_get_inputs(self, keys: Iterable[str], default="") -> Dict[str, str]:
         """
         Gets several input data at once. May be overwritten for more efficiency.
         Returns a dict key:value with value as in get_input
         """
-        return {key: self.get_input(key) for key in keys}
+        return {key: self.get_input(key, default=default) for key in keys}
 
     def set_input(self, key: str, value: str) -> None:
         """
@@ -574,7 +574,7 @@ class CharDataSource:
             if self.stores_parsed_data:
                 self.parsed_data[key] = self.input_parser(value)
 
-    def bulk_set_inputs(self, key_vals: dict) -> None:
+    def bulk_set_inputs(self, key_vals: Dict[str, str]) -> None:
         """
         Sets several inputs at once. input is a dict {key, vals}
         """
@@ -596,63 +596,3 @@ class CharDataSourceDict(CharDataSource):
     def __init__(self):
         self.input_data = dict()
         self.parsed_data = dict()
-
-
-# class DataSetTypes:
-#     """
-#     Different types of data sets that can be in a char version. These differ slightly in interface and may need to be
-#     handled differently. This information may be available from DataSet.__class__ as well, in which case we set
-#     DataSet.dict_type as a class variable, but we want to keep the option to set it on an instance-by-instance basis
-#     """
-#     USER_INPUT = "user input"
-#     CORE_RULES = "core rules"
-#     USER_RULES = "user rules"
-#     PREDEFINED_RULES = "predefined rules"
-#     CACHE_DATASET = "cache"
-
-
-# class UserDataSet(UserDict):
-#     dict_type = DataSetTypes.USER_INPUT
-#
-#     # Note: We have no startdict, because we want input_data to be consistent.
-#     def __init__(self, *, description: str = ""):
-#         super().__init__()  # empty dict
-#         self.description = description
-#         self.input_data = {}
-#
-#     def set_from_string(self, key, value):
-#         # check at call site
-#         assert Regexps.re_key_regular.fullmatch(key)
-#         if len(value) == 0:
-#             del self.input_data[key]
-#             del self[key]
-#             return
-#         self.input_data[key] = value
-#         self[key] = Parser.input_string_to_value(value)
-#
-#     def get_input(self, key):
-#         return self.input_data.get(key, None)
-#
-#
-# class CoreRuleDataSet(UserDict):
-#     dict_type = DataSetTypes.CORE_RULES
-#
-#     def __init__(self, description: str = "core rules", startdict: dict = None):
-#         super().__init__()
-#         self.description = description
-#         if startdict is None:
-#             startdict = {}
-#         assert isinstance(startdict, dict)
-#         self.data = startdict
-#
-#     def set_from_string(self, key, value):
-#         assert Regexps.re_key_any.fullmatch(key)
-#         if len(value) == 0:
-#             del self[key]
-#         else:
-#             self[key] = Parser.input_string_to_value(value)
-#
-#     # noinspection PyUnusedLocal
-#     @staticmethod
-#     def get_input(key):
-#         return None
