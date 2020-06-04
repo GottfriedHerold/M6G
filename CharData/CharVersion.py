@@ -29,18 +29,48 @@ from datetime import datetime, timezone
 # if TYPE_CHECKING:
 from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict
 from collections.abc import MutableMapping, Mapping
+# import logging
+# logger = logging.getLogger()
 
 # import itertools
 from . import Regexps
 from . import Parser
 from . import CharExceptions
 from . import ListBuffer
-from functools import wraps
+from functools import wraps, reduce
+from itertools import groupby, chain
 
 _Ret_Type = TypeVar("_Ret_Type")
 _Arg_Type = TypeVar("_Arg_Type")
 
 _ALL_SUFFIX = "_all"
+
+
+def _act_on_data_source(action: Callable[..., _Ret_Type]) -> Callable[..., _Ret_Type]:
+    """
+    Decorator that takes a CharVersion method action(self, source, ...)
+    and turns into a method action(self, ..., where=None, target_type=None, target_desc=None) with keyword-only
+    parameters where, target_type, target_desc instead of source.
+    The new action calls original action with source as the data source defined by where, target_type and target_desc.
+    """
+    @wraps(action)  # I do not know how to adjust the type hints for _inner
+    def _inner(self: "CharVersion", *args, where: "Union[int, None, CharDataSource]" = None,
+               target_type: Optional[str] = None, target_desc: Optional[str] = None, **kwargs) -> _Ret_Type:
+        if where is None:
+            where = self.get_target_index(target_type, target_desc)
+        if isinstance(where, int):
+            return action(self, self.lists[where], *args, **kwargs)
+        else:
+            if where not in self.lists:
+                raise LookupError("Invalid data source: Not in this CharVersion's data list.")
+            return action(self, where, *args, **kwargs)
+    if 'source' in _inner.__annotations__:
+        del _inner.__annotations__['source']
+    _inner.__annotations__['where'] = 'Union[int, None, CharDataSource]'
+    _inner.__annotations__['target_type'] = Optional[str]
+    _inner.__annotations__['target_desc'] = Optional[str]
+    return _inner
+
 
 class CharVersion:
     """
@@ -147,44 +177,52 @@ class CharVersion:
             else:
                 return next(filter(lambda i: self.lists[i].dict_type == target_type and self.lists[i].description == target_desc, range(len(self.lists))), None)
 
-    # @staticmethod -- this does not work due to subtle details of how class creation works. Calling action unbound does the trick.
-    def act_on_data_source(action: Callable[..., _Ret_Type]) -> Callable[..., _Ret_Type]:
-        @wraps(action)
-        def _inner(self: "CharVersion", *args, where: "Union[int, None, CharDataSource]" = None, target_type: Optional[str] = None, target_desc: Optional[str] = None, **kwargs) -> _Ret_Type:
-            if where is None:
-                where = self.get_target_index(target_type, target_desc)
-            if isinstance(where, int):
-                return action(self, self.lists[where], *args, **kwargs)
-            else:
-                if where not in self.lists:
-                    raise LookupError("Invalid data source: Not in this CharVersion's data list.")
-                return action(self, where, *args, **kwargs)
-        return _inner
+    def _get_index_from_list(self, source: "CharDataSource") -> int:
+        """
+        Obtains i from source==self.lists[i]  (Note: We assume identity, not just equality)
+        We assume that there are no duplicates, but if there were, returns the smallest index i s.t. self.lists[i] is source)
+        Raises IndexError if source is not in self.lists
+        """
+        try:
+            return next(filter(lambda i: self.lists[i] is source, range(len(self.lists))))
+        except StopIteration:
+            raise IndexError("Data source not contained in CharVersion")
 
-    @act_on_data_source
-    def get_data_source(self, source):
+    # IMPORTANT: @act_on_data_source changes the function signature!
+    # These functions have keyword-only arguments where, target_type, target_desc rather than source.
+    # This is why we seemingly redefine those functions. The stub above is the actual signature.
+    # This is to prevent IDEs / type checkers from providing misinformation.
+
+    def get_data_source(self, *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> "CharDataSource": ...
+    @_act_on_data_source
+    def get_data_source(self, source: "CharDataSource") -> "CharDataSource":
         return source
 
-    @act_on_data_source
+    def set(self, key: str, value: object, *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+    @_act_on_data_source
     def set(self, source: "CharDataSource", key: str, value: object) -> None:
         source[key] = value
         self.last_change = datetime.now(timezone.utc)
 
-    @act_on_data_source
-    def bulk_set(self, source: "CharDataSource", key_vals: Dict[str, object]) -> None:
-        source.bulk_set_items(key_vals)
+    def bulk_set(self, key_values: Dict[str, object], *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+    @_act_on_data_source
+    def bulk_set(self, source: "CharDataSource", key_values: Dict[str, object]) -> None:
+        source.bulk_set_items(key_values)
         self.last_change = datetime.now(timezone.utc)
 
-    @act_on_data_source
+    def set_input(self, key: str, value: str, *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+    @_act_on_data_source
     def set_input(self, source: "CharDataSource", key: str, value: str) -> None:
         source.set_input(key, value)
         self.last_change = datetime.now(timezone.utc)
 
-    @act_on_data_source
-    def bulk_set_input(self, source: "CharDataSource", key_vals: Dict[str, str]) -> None:
-        source.bulk_set_inputs(key_vals)
+    def bulk_set_input(self, key_values: Dict[str, str], *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+    @_act_on_data_source
+    def bulk_set_input(self, source: "CharDataSource", key_values: Dict[str, str]) -> None:
+        source.bulk_set_inputs(key_values)
 
-    @act_on_data_source
+    def delete(self, key: str, *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+    @_act_on_data_source
     def delete(self, source: "CharDataSource", key: str) -> None:
         """
         Deletes data_source[key] where data_source is specified by where / target_type / target_desc.
@@ -193,12 +231,14 @@ class CharVersion:
         del source[key]
         self.last_change = datetime.now(timezone.utc)
 
-    @act_on_data_source
+    def bulk_delete(self, keys: Iterable[str], *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+    @_act_on_data_source
     def bulk_delete(self, source: "CharDataSource", keys: Iterable[str]) -> None:
         source.bulk_del_items(keys)
         self.last_change = datetime.now(timezone.utc)
 
-    @act_on_data_source
+    def get_input(self, key: str, default: str, *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> str: ...
+    @_act_on_data_source
     def get_input(self, source: "CharDataSource", key: str, default: str = "") -> str:
         """
         Gets the input string that was used to set data_source[key] in the data_source specified by where / target_type / target_desc.
@@ -212,7 +252,8 @@ class CharVersion:
         """
         return source.get_input(key, default=default)
 
-    @act_on_data_source
+    def bulk_get_inputs(self, keys: Iterable[str], default: str = "", *, where: Union["CharDataSource", int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> Dict[str, str]: ...
+    @_act_on_data_source
     def bulk_get_inputs(self, source: "CharDataSource", keys: Iterable[str], default: str = "") -> Dict[str, str]:
         return source.bulk_get_inputs(keys, default=default)
 
@@ -418,14 +459,156 @@ class CharVersion:
         """
         yield from filter(self.has_value, self.function_candidates(query, indices=indices))
 
-    def bulk_process(self, actions: list) -> dict:
+    def _normalize_action(self, action: dict) -> list:
         """
-        This processes multiple get/set/delete actions at once. Note that there is no guarantee about order.
+        Helper function for bulk_process.
+        Turns an action (entry of commands argument, which is a dict) into a list [action-id, target-id, args]
+        where action-id is a integral id (that determines the order in which commands are executed)
+        targt-id is an integral index into lists for this action
+        and args is the argument list of type appropriate for the action.
+        """
+        # Note: Code in bulk_process relies on the order given here.
+        ret = [None, None, None]
+        if action['action'] == 'set_input':
+            ret[0] = 1
+            if isinstance(acts := action['key_values'], dict):
+                ret[2] = acts.items()
+            else:
+                ret[2] = acts
+        elif action['action'] == 'set':
+            ret[0] = 2
+            if isinstance(acts := action['key_values'], dict):
+                ret[2] = acts.items()
+            else:
+                ret[2] = acts
+        elif action['action'] == 'delete':
+            ret[0] = 3
+            ret[2] = action['keys']
+        elif action['action'] == 'get_source':
+            ret[0] = 4
+            ret[1] = 0  # meaningless. Fixing to an arbitrary constant value.
+            ret[2] = action['queries']
+            return ret
+        elif action['action'] == 'get_input':
+            ret[0] = 5
+            ret[2] = action['keys']
+        elif action['action'] == 'get':
+            ret[0] = 6
+            ret[1] = 0  # meaningless. Fixing to an arbitrary constant value.
+            ret[2] = action['queries']
+            return ret
+        else:
+            raise ValueError("invalid value for 'action' in command given to bulk_process")
+        where: Union[CharDataSource, None, int] = action.get('where')
+        if where is None:
+            where = self.get_target_index(target_type=action.get('target_type'), target_desc=action.get('target_desc'))
+        if not isinstance(where, int):
+            where = self._get_index_from_list(where)
+        ret[1] = where
+        return ret
 
-        :param actions:
-        :return:
+
+    def bulk_process(self, commands: list) -> dict:
         """
-        raise NotImplementedError
+        This processes multiple get/set/delete actions with one call once.
+        Note that we reorder the actions. The order is arbitrary, except that all modifying operations are executed
+        before all querying operations. (Multiple modifications to the same key will give arbitrary results)
+
+        commands is an iterable of commands, where each individual command is a dict of the form
+        command = {  'action': one of 'get', 'set', 'get_input', 'delete', 'set_input', 'get_source'
+                    'where': (except if action is 'get' / 'get_source') Optional parameter to determine data source
+                    'target_type': (except if action is 'get' / 'get_source') Optional parameter to determine data source
+                    'target_desc': (except if action is 'get' / 'get_source') Optional parameter to determine data source
+                    'keys'/'key_values'/'queries': list of keys (get_input, delete) / key_value-pairs(set/set_input) /
+                                                      queries (get / get_source)
+                 }
+                 Note that for a command {action:'get', 'key_values': args, ...}
+                 args may be either a dict or an iterable of key-value pairs. (We call .items() on dicts automatically)
+
+        returns a dict of dict results = {'get': {query1:value1,...},
+                                          'get_input': {key1: value1, ...},
+                                          'get_source: {query1: result1,...}, (Note that result1 is a pair)
+                                         }
+        Note:   In case of error, there are no guarantees whatsoever. We might throw an exception and partially perform
+                actions.
+                TODO: Better error handling
+
+                Note: The whole point of this function is that the actions are reordered
+        """
+        # turn each command into a triple [action-id:int, target-id:int, args:list]
+        commands = [self._normalize_action(command) for command in commands]
+
+        # Sort commands lexicographically, primarily by action-id, secondarily by target-id
+        commands.sort(key=lambda command: command[1])  # sort by target-id
+        commands.sort(key=lambda command: command[0])  # stable-sort by action-id
+
+        # collapse all actions with shared target-id and action-id into a single action, with args the concatenation of the individual actions' args (these args are lists):
+        # groupby(commands, lambda command: (command[0], command[1]) creates an iterator that returns
+        # pairs (ids,command_list) with ids = (command[0], command[1],) = (action-id, target-id,) and command_list an non-empty iterable
+        # over all commands c matching this (action-id, target-id,) pair. So command_list is an iterable with
+        # with list(command_list) = [command_1, command_2, ...]. Applying map(lambda command:command[2], command_list) gives
+        # list (map(lambda command:command[2], command_list)) == [command_1[2], command_2[2], ...].
+        # Note command_1[2] == args_1 is exactly some individual action's args parameter. Flattening the list-of-lists via itertools.chain.from_iterable gives
+        # list(chain.from_iterable(...) ) == [items from command_1[2], items from command_2[2], ...] which is what we want.
+        ### processed_commands = [[*ids, list(chain.from_iterable(map(lambda command:command[2], command_list)))] for ids, command_list in groupby(commands, lambda command: (command[0], command[1],))]
+
+        # Same as above, except the result in not stored in a list, but kept as an iterator
+        # that outputs triples action_id, target_id, args
+        # where args is an iterator (rather than a list). Note that previous outputs args become invalid if processed_commands is iterated.
+        # and processed_commands can only be iterated once (these restrictions carry over from groupby)
+        # In particular, this variant is agnostic to the appropriate container for args; it just concatenates them with chain.from_iterable
+        project_12 = lambda x: (x[0], x[1],)
+        commands = groupby(commands, project_12)
+
+        project_3 = lambda x: x[2]
+        concat_third = lambda command_list_iterator: chain.from_iterable(map(project_3, command_list_iterator))
+        processed_commands = map(lambda group_pair: [*group_pair[0], concat_third(group_pair[1])], commands)
+
+        result: Dict[str, Any] = {}
+        it = iter(processed_commands)
+        changed: bool = False  # whether we changed something
+
+        try:
+            action_id: int
+            target_it: int
+            args: Any
+            action_id, target_id, args = next(it)
+
+            # This code relies on the order set in _normalize_action
+
+            if action_id <= 3:  # action_id 1 to 3 are write operations.
+                changed = True
+            while action_id == 1:  # set_input
+                # Note that args is a list of pairs. dict actually converts that.
+                self.lists[target_id].bulk_set_inputs(key_vals=dict(args))
+                action_id, target_id, args = next(it)
+            while action_id == 2:  # set
+                # again, args is a list of pairs, whereas bulk_set_items requires a dict.
+                self.lists[target_id].bulk_set_items(key_vals=dict(args))
+                action_id, target_id, args = next(it)
+            while action_id == 3:  # delete
+                self.lists[target_id].bulk_del_items(keys=args)
+                action_id, target_id, args = next(it)
+            if action_id == 4:  # get_source, can appear only once
+                assert target_id == 0
+                result['get_source'] = self.bulk_get_input_sources(keys=args)
+                action_id, target_id, args = next(it)
+            if action_id == 5:
+                result['get_input'] = {}
+            while action_id == 5:  # get_input
+                target_id: int
+                result['get_input'].update(self.lists[target_id].bulk_get_inputs(keys=args))
+                action_id, target_id, args = next(it)
+            if action_id == 6:  # get
+                assert target_id == 0
+                result['get'] = self.bulk_get(queries=args)
+                __, __, __ = next(it)
+            assert False  # _normalize_action takes care of unknown actions, so we can never reach this
+        except StopIteration:
+            pass
+        if changed:
+            self.last_change = datetime.now(timezone.utc)
+        return result
 
 
 class CharDataSource:

@@ -114,21 +114,21 @@ class CGUser(AbstractBaseUser):
     @property
     def is_staff(self) -> bool:
         """
-            Used by Django's built-in admin (web-)interface to determine whether the user has access to that interface.
+        Used by Django's built-in admin (web-)interface to determine whether the user has access to that interface.
 
-            Note: Is_superuser is used internally by Django's permissions system to override its default permission
-            system for model/object-specific permissions.
+        Note: Is_superuser is used internally by Django's permissions system to override its default permission
+        system for model/object-specific permissions.
 
-            The default permission system is designed for model-specific permissions, not for permissions on the object
-            level. (There is an interface for the latter, but it requires a lot of tweaking.
-            Arguably, it is overengineered for our purpose (due to being too tightly coupled to generic authentication
-            backends, of which it allows several simultaneously)
-            and tweaking it is more work than implementing a simpler system that works for CharGenNG)
+        The default permission system is designed for model-specific permissions, not for permissions on the object
+        level. (There is an interface for the latter, but it requires a lot of tweaking.
+        Arguably, it is overengineered for our purpose (due to being too tightly coupled to generic authentication
+        backends, of which it allows several simultaneously)
+        and tweaking it is more work than implementing a simpler system that works for CharGenNG)
 
-            Since CGUser does not include PermissionsMixin and we actively disable Django's permissions system,
-            we do not need to distinguish is_staff and is_superuser.
-            The only Django permissions that we use is that only users with is_admin can use Django's admin interface
-            and there are no restrictions there.
+        Since CGUser does not include PermissionsMixin and we actively disable Django's permissions system,
+        we do not need to distinguish is_staff and is_superuser.
+        The only Django permissions that we use is that only users with is_admin can use Django's admin interface
+        and there are no restrictions there.
         """
 
         return self.is_admin
@@ -232,9 +232,9 @@ class CharModel(models.Model):
     @classmethod
     def create_char(cls, name: str, creator: CGUser, *, description: str = "") -> 'CharModel':
         """
-            Creates a new char with the given name and description.
-            The creator is recorded as the creator and given read/write permissions.
-            You will need to create an initial char version by char.make_char_version(...)
+        Creates a new char with the given name and description.
+        The creator is recorded as the creator and given read/write permissions.
+        You will need to create an initial char version by char.make_char_version(...)
         :return: char
         """
         current_time: datetime = datetime.now(timezone.utc)
@@ -247,8 +247,8 @@ class CharModel(models.Model):
 
     def create_char_version(self, *args, **kwargs) -> 'CharVersionModel':
         """
-            Creates a new char version for this char (shortcut for a method of CharModel)
-            Refer to CharVersionModel.create_char_version for details
+        Creates a new char version for this char (shortcut for a method of CharModel)
+        Refer to CharVersionModel.create_char_version for details
         """
         if 'owner' in kwargs:
             raise ValueError("Use class method CharVersionModel.create_char_version to change owner")
@@ -322,10 +322,10 @@ class CharVersionModel(models.Model):
     def create_char_version(cls, *, version_name: str = None, description: str = None, edit_mode: bool = None,
                             parent: 'Optional[CharVersionModel]' = None, data_sources=None, owner: CharModel = None):
         """
-            Creates a new char version. Parameters are taken from parent char version unless overridden by arguments
-            to create_char_version. Note that both owner and parent need to be saved in the db.
-            If parent is None, owner needs to be set, this creates a root char version.
-            Note that this function may change owner / parent.owner
+        Creates a new char version. Parameters are taken from parent char version unless overridden by arguments
+        to create_char_version. Note that both owner and parent need to be saved in the db.
+        If parent is None, owner needs to be set, this creates a root char version.
+        Note that this function may change owner / parent.owner
         """
         changed_owner = False
         if parent:
@@ -498,8 +498,8 @@ class CharUsers(models.Model):
     @staticmethod
     def update_char_user(*, char: CharModel, user: 'CGUser') -> Optional['CharUsers']:
         """
-            This creates / updates a CharUsers entry in the database for char and user and returns the new object.
-            We opt to delete the corresponding object if no permissions are present.
+        This creates / updates a CharUsers entry in the database for char and user and returns the new object.
+        We opt to delete the corresponding object if no permissions are present.
         """
 
         user_logger.info('Updating permissions for char %(char)s and user %(user)s' % {'char': char, 'user': user})
@@ -568,8 +568,8 @@ class CharUsers(models.Model):
     @classmethod
     def user_may_read(cls, *, char: Union[CharModel, CharVersionModel], user: CGUser) -> bool:
         """
-            Checks whether user has read access to char. This is the preferred interface to use.
-            (or the shortcuts in CGUser, CharModel, CharVersionModel)
+        Checks whether user has read access to char. This is the preferred interface to use.
+        (or the shortcuts in CGUser, CharModel, CharVersionModel)
         """
         if user.is_admin:
             return True
@@ -582,8 +582,8 @@ class CharUsers(models.Model):
     @classmethod
     def user_may_write(cls, *, char: Union[CharModel, CharVersionModel], user: CGUser) -> bool:
         """
-            Checks whether user has read/write access to char. This is the preferred interface to use.
-            (or the shortcuts in CGUser, CharModel, CharVersionModel)
+        Checks whether user has read/write access to char. This is the preferred interface to use.
+        (or the shortcuts in CGUser, CharModel, CharVersionModel)
         """
 
         if user.is_admin:

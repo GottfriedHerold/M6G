@@ -16,7 +16,7 @@ class DataError:
     Used to indicate that a database entry is faulty.
     Reason is the reason, exception is possibly an exception that caused it (if present)
     """
-    def __init__(self, reason: str = "", exception=None):
+    def __init__(self, reason: str = "", exception: Exception = None):
         self.exception = exception
         if (exception is not None) and not reason:
             self.reason = str(exception)

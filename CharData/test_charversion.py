@@ -1,5 +1,6 @@
 from . import CharVersion
 from . import Parser
+import logging
 
 def _test_dict_like_data_source(data_source: CharVersion.CharDataSource):
     assert "x" not in data_source
@@ -125,3 +126,35 @@ def test_charversion_utils():
 
     cv.lists = [list_2, list_4, list_7]
     assert cv.get_data_source(target_type="typeB") is list_4
+
+    cv.lists = [list_1, list_2, list_3, list_4, list_5, list_6, list_7]
+
+    cv.bulk_set({'delme': 1, 'delmetoo': '2'}, target_type ='typeP')
+    cv.bulk_set_input({'delmetootoo': '=2'}, where =2)
+
+    commanddel1 = {'action': 'delete', 'target_type': 'typeP', 'keys': [ 'delme', 'delmetoo'] }
+    commanddel2 = {'action': 'delete', 'where': 2, 'keys': ['delmetootoo']}
+    commandadd1 = {'action': 'set', 'target_desc': 'desc_p', 'key_values': {'b.x': 5, 'bb': True}}
+    commandadd2 = {'action': 'set_input', 'where': 1, 'key_values': [('b.b.x', '=$AUTO * $AUTO')]}
+    commandadd3 = {'action': 'set_input', 'where': 1, 'key_values': []}
+
+    commandget1 = {'action': 'get_input', 'where': 1, 'keys': ['b.b.x', 'b.x']}
+    commandget2 = {'action': 'get_source', 'queries': ['b.b.x', 'b.x', 'x.bb', 'b.b.c.x']}
+    commandget3 = {'action': 'get', 'queries': ['b.b.x', 'b.x', 'x.bb']}
+    commandget4 = {'action': 'get_source', 'queries': ['b.b.c.x']}
+    commandget5 = {'action': 'get', 'queries': ('b.b.d.x',)}
+    commandget6 = {'action': 'get', 'queries': []}
+
+    answer = cv.bulk_process([commandadd1, commandadd2, commandadd3, commanddel1, commanddel2, commandget1, commandget2, commandget3, commandget4, commandget5, commandget6])
+    answer1 = answer['get_input']
+    assert answer1 == {'b.b.x': '=$AUTO * $AUTO', 'b.x': ''}
+    answer2 = answer['get_source']
+    assert len(answer2) == 4
+    assert answer2['b.b.x'] == ('=$AUTO * $AUTO', True)
+    assert answer2['b.x'][1] is False
+    assert answer2['x.bb'][1] is False
+    assert isinstance(answer2['b.x'][0], (str, type(None)))
+    assert isinstance(answer2['x.bb'][0], (str, type(None)))
+    assert answer2['b.b.c.x'] == ('=$AUTO * $AUTO', True)
+    answer3 = answer['get']
+    assert answer3 == {'b.b.x':25, 'b.x': 5, 'x.bb': True, 'b.b.d.x': 25}

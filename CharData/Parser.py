@@ -240,10 +240,10 @@ t_GTE = r">="
 # literals will generate single literal tokens
 literals = "+-*/%()[],<>={}:"
 # Note: While we have [] for indexing into iterables, membership access via "." is missing intentionally!
-# In fact, allowing this would give remote code execution. The issue is that python objects carry references to
+# In fact, allowing this might give remote code execution. The issue is that python objects carry references to
 # their definition context via __globals__, __module__ etc. and these would become accessible.
-# If the signing key for the session cookies leaks, an attacker can create forged cookies.
-# Since cookies contain (supposedly signed) pickled python objects, an attacker can hijack pickle for remote code
+# If the signing key for the session cookies leaks, an attacker can create forged session cookies.
+# Since cookies may contain (supposedly signed) pickled python objects, an attacker can hijack pickle for remote code
 # execution.
 
 # use PLY.lex to actually generate the lexer now.
@@ -261,6 +261,7 @@ lexer = lex.lex()
 # ASTs are the result from parsing the input string.
 # NOTE: The result of parsing must be purely a function of the input string. There is no dependency on
 # other data sources for the references etc. These dependencies only come into play when actually evaluating.
+# Furthermore, the structure of ASTs ist such that it should be easy to serialize them.
 
 # To actually evaluate the AST instance T, call T.eval_ast(data_list, context)
 # data_list is the list of data sources, used to evaluate (database) references.
@@ -272,7 +273,7 @@ lexer = lex.lex()
 
 # For a function call f(a,b,c), we have an AST_FunctionCall node with children f,a,b,c (in that order), where
 # f,a,b,c are ASTs themselves of appropriate types.
-# For a function call f(a, *b,**c, $name  = d), we have an AST_FunctionCall node with children a,b,c,d.
+# For a function call f(a, *b,**c, $name  = d), we have an AST_FunctionCall node with children f,a,b,c,d.
 # The subclass of AST of a,b,c do not tell that this a *,** or namebind-expression:
 # This information is *not* part of the AST's tree structure. (there is no AST subclass for "star-expression" etc.)
 # Rather, a,b,c,d have an object variable a.argtype denoting "starred-ness" and optionally d.argname = "name".
@@ -280,7 +281,7 @@ lexer = lex.lex()
 # For a function definition FUN[$a,$b,*$c]($a+$b), we have an AST_LAMBDA. AST_Lambdas always have exactly 2 children:
 # The right child is an AST for the function body ($a+$b in this example). The left child is *not* an AST, but
 # rather a (possibly empty) list of tuples, where each tuple entry encodes the variable name, its type (*-ed-ness and
-# whether there is a default argument) and optionally default argument.
+# whether there is a default argument) and optionally default argument (which is an AST).
 
 
 class AST:
