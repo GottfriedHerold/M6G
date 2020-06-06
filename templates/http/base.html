@@ -10,7 +10,12 @@
 <body>
 <div class="layoutbox" id="outerflexcontainer" style="display:flex; flex-direction:column; height:100%; width:100%;">
     <div class="layoutbox" id="headercontainer" style="flex:0 0;">
-        Header
+        {% block header %}
+        Hello {{ user.is_authenticated }} {{ user is defined }} {{ XXX }}
+        {% if XXX %}
+        AAA
+        {% endif %}
+        {% endblock header %}
     </div>
     <div class="layoutbox" id="middlerowcontainer"  style="flex:1 1 auto; min-height:10pt; display:flex; flex-direction:row; width:100%;">
         <div class="layoutbox horizonclip" id="sidenavcontainer" style="flex:1 0 auto;">

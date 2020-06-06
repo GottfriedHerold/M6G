@@ -11,10 +11,11 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 """
 
 import os
-# import jinja2
-from jinja2 import Environment
+import jinja2
+# from jinja2 import Environment as Jinja2environment, DebugUndefined
 from django.templatetags.static import static
 from django.urls import reverse
+import logging
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,13 +58,18 @@ MIDDLEWARE = [
 ROOT_URLCONF = 'CharGenNG.urls'
 
 def http_jinja_env(**options):
-    env = Environment(**options)
+    env = jinja2.Environment(**options)
     env.globals.update({
         'static': static,
         'url': reverse,
     })
-    return env
 
+    class MyDebugUndefined(jinja2.DebugUndefined):
+        def __str__(self):
+            return "Undefined:" + super().__str__()
+    logger = logging.getLogger('chargen.undefined_templates')
+    env.undefined = jinja2.make_logging_undefined(logger=logger, base=MyDebugUndefined)
+    return env
 
 TEMPLATES = [
     {
@@ -84,7 +90,14 @@ TEMPLATES = [
         'APP_DIRS': False,
         'NAME': 'HTTPJinja2',
         'OPTIONS': {
-          'environment': 'CharGenNG.settings.http_jinja_env'
+            'environment': 'CharGenNG.settings.http_jinja_env',
+            'context_processors': [
+                # adds the following variables to templates
+                # automatic: csrf_input (Jinja2-specific), cookie-name is csrftoken
+                'django.template.context_processors.debug',  # adds debug, sql_queries
+                'django.template.context_processors.request',  # adds request
+                'django.contrib.auth.context_processors.auth',  # adds user, perms
+            ],
         },
         'DIRS': [os.path.join(BASE_DIR, 'templates/http')]
     }
