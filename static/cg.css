@@ -25,22 +25,31 @@ overflow-y: auto;
 #sidenavcontainer{
 min-width:5em;
 max-width:8em;
-background-color:lightgreen;
+background-color:#ffff30;
 }
 
 #mainareacontainer{
 overflow:auto;
-background-color:purple
+background-color: #b0ffff;
 }
 
 #helpcontainer{
-background-color:teal;
+background-color:#80ffff;
 }
 
 #statuscontainer{
-background-color:lightblue;
+background-color:#ffdfff
 }
 
 #headercontainer{
-background-color: yellow;
+background-color: #33ff33;
+font-size: 150%;
+}
+
+#footercontainer{
+background-color: #c0c0c0;
+}
+
+.loginerror{
+color: red;
 }

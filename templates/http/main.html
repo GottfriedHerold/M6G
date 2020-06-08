@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block header %}
+<span> Hello {{ user.username|escape if user.is_authenticated else "Guest" }}! &nbsp;&nbsp;</span>
+{% if user.is_authenticated %}
+    <span> <a href={{ urlarg("logout") }}>Logout</a> </span>
+{% else %}
+    <span>
+        {% if login_fail is defined and login_fail %}
+        <span class="loginerror">Invalid username/password</span>
+        {% endif %}
+        <form style="display:inline;" method="POST" name="LoginForm" action="{{ request.path }}">
+            {{ csrf_input }}
+            <input type="hidden" name="form_id" value="login"> {# This is used to determine which form was submitted #}
+            <label for="id_login_username">Username:</label>
+            <input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" maxlength="40" required id="id_login_username" size="6">
+            <label for="id_login_password">Password:</label>
+            <input type="password" name="password" autocomplete="current-password" required id="id_login_password" size="4">
+            <input type="submit" value="Login">
+        </form>
+    </span>
+{% endif %}
+{% endblock header %}

@@ -1,9 +1,24 @@
-<!DOCTYPE html>
-<html>
-<head>
-<title>Example HTML page</title>
-</head>
-<body>
-This is just some HTML test for {{ "jinja2"|capitalize }}.
-</body>
-</html>
+{% extends "base.html" %}
+{% block sub_header %}
+<div>
+    <form method="POST" action="{{ url("Jinjatest") }}" name="test1" id="id_test1form">
+    {{ csrf_input }}
+    <label for="id_test1_1">X1</label>
+    <input name="test1_1" id="id_test1_1">
+    <label for="id_test1_2">X2</label>
+    <input name="test1_2" id="id_test1_2">
+    <input type="submit" value="OK">
+    </form>
+    <br>
+    <form method="POST" action="{{ url("Jinjatest") }}" name="test2" id="id_test2form">
+    {{ csrf_input }}
+    <label for="id_test2_1">X1</label>
+    <input name="test2_1" id="id_test2_1">
+    <label for="id_test2_2">X2</label>
+    <input name="test2_2" id="id_test2_2">
+    <input type="submit" value="OK">
+    </form>
+    {{ request.path }}
+
+</div>
+{% endblock %}

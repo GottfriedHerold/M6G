@@ -57,11 +57,16 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'CharGenNG.urls'
 
+def urlarg(*args, **kwargs):
+    return jinja2.Markup('"' + reverse(*args, **kwargs) + '"')
+
 def http_jinja_env(**options):
     env = jinja2.Environment(**options)
     env.globals.update({
         'static': static,
         'url': reverse,
+        'urlarg': urlarg,
+        'DEBUG_PRINT': (lambda x: str(x)+""),
     })
 
     class MyDebugUndefined(jinja2.DebugUndefined):
@@ -93,9 +98,11 @@ TEMPLATES = [
             'environment': 'CharGenNG.settings.http_jinja_env',
             'context_processors': [
                 # adds the following variables to templates
-                # automatic: csrf_input (Jinja2-specific), cookie-name is csrftoken
-                'django.template.context_processors.debug',  # adds debug, sql_queries
-                'django.template.context_processors.request',  # adds request
+                # automatic (Jinja2-specific): csrf_input, csrf_token, request, cookie-name is csrftoken,
+                # According to https://docs.djangoproject.com/en/3.0/topics/templates/ context processors are not really
+                # in line with Jinja2's design (they are more of a workaround to django's default template engine's
+                #  limitations). We use auth, though.
+                # 'django.template.context_processors.debug',  # adds debug, sql_queries
                 'django.contrib.auth.context_processors.auth',  # adds user, perms
             ],
         },

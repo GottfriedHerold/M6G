@@ -20,6 +20,14 @@ class MANAGER_TYPE(Generic[_Z], models.QuerySet, models.Manager):
     def __iter__(self) -> Iterator[_Z]: ...
 
 
+CHAR_NAME_MAX_LENGTH = 80  # max length of char name
+CHAR_DESCRIPTION_MAX_LENGTH = 240  # max length of char descriptions
+CV_DESCRIPTION_MAX_LENGTH = 240  # max length of char version descriptions
+MAX_INPUT_LENGTH = 200  # max length of (short) text field inputs
+KEY_MAX_LENGTH = 240  # max length of dict keys (for chars)
+CG_USERNAME_MAX_LENGTH = 40 # max length of usernames
+
+
 # When setting a foreign key attribute in model A to model B, django automatically adds an a_set attribute to B.
 # (name can be customized and usually is). Setting a type hint
 # a_set : RELATED_MANAGER_TYPE[A]
@@ -91,8 +99,10 @@ class CGUser(AbstractBaseUser):
     User class.
     """
     class Meta(MyMeta):
-        pass
-    username: str = models.CharField(max_length=40, unique=True)
+        constraints = [
+            models.CheckConstraint(check=~models.Q(username__iexact="guest"), name='no_guest_user'),  # guest as username would cause confusion
+        ]
+    username: str = models.CharField(max_length=CG_USERNAME_MAX_LENGTH, unique=True)
     USERNAME_FIELD = 'username'  # database field that is used as username in the login.
     REQUIRED_FIELDS = ['email']  # list of additional mandatory fields queried in the "manage.py createsuperuser" script.
     objects: 'MANAGER_TYPE[CGUser]' = CGUserManager()  # object manager. We can't use the default one
@@ -190,13 +200,6 @@ def get_default_group() -> CGGroup:
     elif all_group.name != 'all users':
         logger.critical('CGGroup with id 1 does not have the expected name.')
     return all_group
-
-
-CHAR_NAME_MAX_LENGTH = 80  # max length of char name
-CHAR_DESCRIPTION_MAX_LENGTH = 240  # max length of char descriptions
-CV_DESCRIPTION_MAX_LENGTH = 240  # max length of char version descriptions
-MAX_INPUT_LENGTH = 200  # max length of (short) text field inputs
-KEY_MAX_LENGTH = 240  # max length of dict keys (for chars)
 
 class CharModel(models.Model):
     """
