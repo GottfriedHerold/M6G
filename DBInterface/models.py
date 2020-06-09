@@ -610,13 +610,16 @@ class DictEntry(models.Model):
 
     char_version: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.CASCADE, null=False,
                                                        related_name="%(class)s_set")
-    key: str = models.CharField(max_length=KEY_MAX_LENGTH, null=False)
+    key: str = models.CharField(max_length=KEY_MAX_LENGTH, null=False, blank=False)
     value: str
 
     objects: 'MANAGER_TYPE[DictEntry]'
 
 class ShortDictEntry(DictEntry):
-    value: str = models.CharField(max_length=MAX_INPUT_LENGTH, blank=True, null=False)  # Note that the DB will prevent saving null and "" entries
+    # Blank=True is validation-related. While entering blank values is allowed (it deletes the entry), this needs to
+    # be handled manually. The only place where blank matters is the admin interface, which does not know about
+    # our custom logic. So we set blank to False.
+    value: str = models.CharField(max_length=MAX_INPUT_LENGTH, blank=False, null=False)
 
 class LongDictEntry(DictEntry):
-    value: str = models.TextField(blank=True, null=False)
+    value: str = models.TextField(blank=False, null=False)

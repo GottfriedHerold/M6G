@@ -17,6 +17,41 @@ class CharGenView(View):
 
     template = "main.html"
 
+    @staticmethod
+    def process_authentication_attempt(self, request: HttpRequest) -> bool:
+        """
+        Processes an authentication attempt with username/password in request.POST.
+        If successful, logs the user in and returns True.
+        otherwise, returns False.
+        Note: If this function returns True, request.user can not be relied upon. It is recommended
+        to immediately redirect to a fresh url.
+        """
+        # Using Django's AuthenticationForm is a pain. After spending hours to figure out things and getting it to work
+        # (albeit ugly), I could not figure out how to make it look nice.
+        # It was 10x faster to ditch it and do everything myself.
+        username = request.POST.get("username")
+        password = request.POST.get("password")
+        if not username:
+            login_logger.critical("Login with empty username")  # can only happen with form tampering.
+            return False
+        if not password:
+            login_logger.critical("Login with empty password")  # can only happen with form tampering.
+            return False
+        if len(username) > CG_USERNAME_MAX_LENGTH or len(password) > 254:
+            login_logger.critical("Login with too long pw/username")
+            return False
+        new_user: CGUser = auth.authenticate(request, username=username, password=password)
+        if new_user is not None and new_user.is_authenticated and new_user.is_active:
+            login_logger.info("User %s authenticated successfully", str(new_user))
+            auth.login(request, new_user)
+            login_logger.info("User %s logged in", str(new_user))
+            return True
+        else:  # credentials were passed, but they were invalid.
+            login_logger.warning("Failed login attempt for username %s", username)
+            return False
+
+
+
     def get(self, request: HttpRequest, *args, **kwargs):
         context = {}
         user: CGUser = request.user
@@ -37,33 +72,15 @@ class CharGenView(View):
     # Check permissions
     # Create CharVersion object
     # Determine Request type
-    #   Process Login
+    # Process Login
 
     def post(self, request: HttpRequest, *args, **kwargs):
         context = {}
         if request.POST.get('form_id') == "login":
-            # Using Django's AuthenticationForm is a pain. It's easier to do everything yourself.
-            username = request.POST.get("username")
-            password = request.POST.get("password")
-            if not username:
-                context['login_fail'] = True
-                login_logger.critical("Login with empty username")  # can only happen with form tampering.
-            elif not password:
-                context['login_fail'] = True
-                login_logger.critical("Login with empty password")  # can only happen with form tampering.
-            elif len(username) > CG_USERNAME_MAX_LENGTH or len(password) > 254:
-                context['login_fail'] = True
-                login_logger.critical("Login with too long pw/username")
+            if self.process_authentication_attempt(request):
+                return HttpResponseRedirect(request.path)
             else:
-                new_user: CGUser = auth.authenticate(request, username=username, password=password)
-                if new_user is not None and new_user.is_authenticated:
-                    login_logger.info("User %s authenticated successfully", str(new_user))
-                    auth.login(request, new_user)
-                    login_logger.info("User %s logged in", str(new_user))
-                    return HttpResponseRedirect(request.path)
-                else:  # credentials were passed, but they were invalid.
-                    context['login_fail'] = True
-                    login_logger.warning("Failed login attempt for username %s", username)
+                context['login_fail'] = True  # will display an error message
         return render(request, self.template, context=context, using="HTTPJinja2")
         pass
 

@@ -43,10 +43,10 @@ from ply.lex import TOKEN
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
 from .CharExceptions import DataError, CGParseException, CGEvalException
 
-# We need CharVersion for type annotations. Unfortunately, this would create circular imports, which are OK only
+# We need BaseCharVersion for type annotations. Unfortunately, this would create circular imports, which are OK only
 # while statically type-checking, but not otherwise.
 if TYPE_CHECKING:
-    from . import CharVersion
+    from . import BaseCharVersion
 
 # Recognized keywords by the tokenizer.
 # ply.lex generates tokens with a value and a type. For keywords in this list, value == type == keyword string.
@@ -314,14 +314,14 @@ class AST:
     def __str__(self):  # Debug only, may be overridden in leaf nodes. Note that self.typedesc is always overridden.
         return self.typedesc + '[' + ", ".join([str(x) for x in self.child]) + ']'
 
-    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
+    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
         """
         evaluates the ast within the given context.
         IMPORTANT: eval_ast can return lambdas which may capture data_list and context possibly *by reference*.
         For data_list, we only ever hand it through, but for context, do not rely on stable behaviour and never modify
         a dict after it is passed to eval_ast for the lifetime of the result as an external caller.
 
-        :param data_list: List of data sources used for lookups. Of type CharVersion or None.
+        :param data_list: List of data sources used for lookups. Of type BaseCharVersion or None.
         :param context: Dict of variables used in evaluations. External callers need to supply those in self.needs_env.
         :return: result of evaluation.
         """
@@ -786,7 +786,7 @@ class AST_Lambda(AST):
 class AST_List(AST):
     typedesc = 'List'
     # default init does The Right Thing (TM): self.child is a tuple of child AST objects.
-    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
+    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
         ret = []
         for c in self.child:
             c_eval = c.eval_ast(data_list, context)
@@ -798,7 +798,7 @@ class AST_List(AST):
 class AST_Dict(AST):
     typedesc = 'Dict'
     # default init does The Right Thing (TM)
-    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
+    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
         assert len(self.child) % 2 == 0
         ret = {}
         it = iter(self.child)
@@ -818,7 +818,7 @@ class AST_Dict(AST):
 
 class AST_Set(AST):
     typedesc = 'Set'
-    def eval_ast(self, data_list: 'CharVersion.CharVersion', context: dict):
+    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
         ret = []
         for c in self.child:
             c_eval = c.eval_ast(data_list, context)

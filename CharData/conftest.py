@@ -1,18 +1,18 @@
 import pytest
 
-from . import CharVersion
+from . import BaseCharVersion
 
-#Simple CharVersion that is just for testing lookups and the parser.
+#Simple BaseCharVersion that is just for testing lookups and the parser.
 @pytest.fixture(scope='function')
 def empty3cv():
-    DataSet1 = CharVersion.CharDataSourceDict()
+    DataSet1 = BaseCharVersion.CharDataSourceDict()
     DataSet1.description = "D1"
-    DataSet2 = CharVersion.CharDataSourceDict()
+    DataSet2 = BaseCharVersion.CharDataSourceDict()
     DataSet2.description = "D2"
-    DataSet3 = CharVersion.CharDataSourceDict()
+    DataSet3 = BaseCharVersion.CharDataSourceDict()
     DataSet3.description = "D3"
 
-    # DataSet1 = CharVersion.UserDataSet()
-    # DataSet2 = CharVersion.UserDataSet()
-    # DataSet3 = CharVersion.CoreRuleDataSet()
-    return CharVersion.CharVersion(initial_lists=[DataSet1, DataSet2, DataSet3])
+    # DataSet1 = BaseCharVersion.UserDataSet()
+    # DataSet2 = BaseCharVersion.UserDataSet()
+    # DataSet3 = BaseCharVersion.CoreRuleDataSet()
+    return BaseCharVersion.BaseCharVersion(initial_lists=[DataSet1, DataSet2, DataSet3])

@@ -12,14 +12,14 @@ then  S0[gfp_spent], S1[gfp_spent], ...
 finally S0[_all], S1[_all], ...
 We take the first match we find and return an arbitrary python object.
 
-The CharVersion class itself only takes care about managing these dict-like data sources and the lookup.
+The BaseCharVersion class itself only takes care about managing these dict-like data sources and the lookup.
 To actually use it, you will probably have to subclass it and override/add some @property-methods to tie
 a CharVersion's metadata not contained in self.lists such as last_change to a database.
 
 The individual data sources need to satisfy a certain interface. Derive from CharDataSource to satisfy it.
-Note that CharVersion does not copy its data sources. While a CharVersion object holds a data source in its lists,
-do not edit the data source object directly, but through methods provided by CharVersion.
-(This is because CharVersion might introduce caching in the future)
+Note that BaseCharVersion does not copy its data sources. While a BaseCharVersion object holds a data source in its lists,
+do not edit the data source object directly, but through methods provided by BaseCharVersion.
+(This is because BaseCharVersion might introduce caching in the future)
 """
 
 # from typing import TYPE_CHECKING
@@ -48,13 +48,13 @@ _ALL_SUFFIX = "_all"
 
 def _act_on_data_source(action: Callable[..., _Ret_Type]) -> Callable[..., _Ret_Type]:
     """
-    Decorator that takes a CharVersion method action(self, source, ...)
+    Decorator that takes a BaseCharVersion method action(self, source, ...)
     and turns into a method action(self, ..., where=None, target_type=None, target_desc=None) with keyword-only
     parameters where, target_type, target_desc instead of source.
     The new action calls original action with source as the data source defined by where, target_type and target_desc.
     """
     @wraps(action)  # I do not know how to adjust the type hints for _inner
-    def _inner(self: "CharVersion", *args, where: "Union[int, None, CharDataSource]" = None,
+    def _inner(self: "BaseCharVersion", *args, where: "Union[int, None, CharDataSource]" = None,
                target_type: Optional[str] = None, target_desc: Optional[str] = None, **kwargs) -> _Ret_Type:
         if where is None:
             where = self.get_target_index(target_type, target_desc)
@@ -62,7 +62,7 @@ def _act_on_data_source(action: Callable[..., _Ret_Type]) -> Callable[..., _Ret_
             return action(self, self.lists[where], *args, **kwargs)
         else:
             if where not in self.lists:
-                raise LookupError("Invalid data source: Not in this CharVersion's data list.")
+                raise LookupError("Invalid data source: Not in this BaseCharVersion's data list.")
             return action(self, where, *args, **kwargs)
     if 'source' in _inner.__annotations__:
         del _inner.__annotations__['source']
@@ -72,7 +72,7 @@ def _act_on_data_source(action: Callable[..., _Ret_Type]) -> Callable[..., _Ret_
     return _inner
 
 
-class CharVersion:
+class BaseCharVersion:
     """
     This class models a set of data sources that makes up a character. Note that this is supposed to be subclassed
     in order to add synchronization abilities with a database.
@@ -133,7 +133,7 @@ class CharVersion:
     def update_metadata(self) -> None:
         """
         Called to update internal data. Needs to be externally called after lists change.
-        E.g. after x.lists.insert for CharVersion object x.
+        E.g. after x.lists.insert for BaseCharVersion object x.
         TODO: This interface is not stable
         :return: None
         """
@@ -297,7 +297,7 @@ class CharVersion:
 
     def get(self, query: str, *, locator: Iterable = None, default=None) -> Any:
         """
-        Obtain an element from the current CharVersion database by query name.
+        Obtain an element from the current BaseCharVersion database by query name.
 
         locator should usually be None. It encodes the list or a generator of all results that match the query
         name according to our lookup rules. This is overridden to implement $AUTO(QUERY) calls.
@@ -364,7 +364,7 @@ class CharVersion:
     def lookup_candidates(self, query: str, *, restricted: bool = None, indices: Iterable[int] = None) -> Generator[Tuple[str, int], None, None]:
         """
         generator that yields all possible candidates for a given query string, implementing our lookup rules.
-        The results are pairs (key, index), where index is an index into CharVersion.lists and key is the
+        The results are pairs (key, index), where index is an index into BaseCharVersion.lists and key is the
         lookup key in that list. The results are in order of precedence.
         It does not check whether the entry exists, just yield candidates.
 
@@ -383,7 +383,7 @@ class CharVersion:
 
         :param query: query string
         :param restricted: controls whether we only search for restricted keys. Default: restricted-ness of query.
-        :param indices: list of indices into CharVersion.lists to restrict the candidates.
+        :param indices: list of indices into BaseCharVersion.lists to restrict the candidates.
         :return: pairs (key, index) where index is an index into self.lists and key is the key for self.lists[index]
         """
         assert Regexps.re_key_any.fullmatch(query)
@@ -619,14 +619,14 @@ class CharDataSource:
     contains_restricted: bool = True  # Data source may contain restricted keys. Not necessarily enforced.
     contains_unrestricted: bool = True  # Data source may contain unrestricted keys.
     # description and dict_type are string that describe the data source.
-    # If unique, CharVersion can look up the data source by this.
+    # If unique, BaseCharVersion can look up the data source by this.
     description: str = "nondescript"
     dict_type: str = "user defined"
-    default_write: bool = False  # Writes go into this data source by default. At most one data source per CharVersion.
+    default_write: bool = False  # Writes go into this data source by default. At most one data source per BaseCharVersion.
     read_only: bool = False  # Cannot write / delete if this is set.
     stores_input_data: bool  # stores input data.
     stores_parsed_data: bool  # stores parsed data.
-    type_unique: bool = False  # Only one data source with the given dict_type must be present in a CharVersion.
+    type_unique: bool = False  # Only one data source with the given dict_type must be present in a BaseCharVersion.
 
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
     input_data: "Union[Mapping, MutableMapping]"  # self.storage is where input data is stored if stored_input_data is set

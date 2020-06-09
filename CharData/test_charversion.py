@@ -1,8 +1,8 @@
-from . import CharVersion
+from . import BaseCharVersion
 from . import Parser
 import logging
 
-def _test_dict_like_data_source(data_source: CharVersion.CharDataSource):
+def _test_dict_like_data_source(data_source: BaseCharVersion.CharDataSource):
     assert "x" not in data_source
     assert data_source.contains_unrestricted or data_source.contains_restricted
     assert data_source.stores_parsed_data or data_source.stores_input_data
@@ -56,10 +56,10 @@ def _test_dict_like_data_source(data_source: CharVersion.CharDataSource):
 
 
 def test_data_source_dict():
-    x = CharVersion.CharDataSourceDict()
+    x = BaseCharVersion.CharDataSourceDict()
     _test_dict_like_data_source(x)
 
-    class OnlyParsed(CharVersion.CharDataSource):
+    class OnlyParsed(BaseCharVersion.CharDataSource):
         stores_input_data = False
         stores_parsed_data = True
 
@@ -69,7 +69,7 @@ def test_data_source_dict():
     x = OnlyParsed()
     _test_dict_like_data_source(x)
 
-    class OnlyInput(CharVersion.CharDataSource):
+    class OnlyInput(BaseCharVersion.CharDataSource):
         stores_input_data = True
         stores_parsed_data = False
 
@@ -80,27 +80,27 @@ def test_data_source_dict():
     _test_dict_like_data_source(x)
 
 def test_charversion_utils():
-    list_1 = CharVersion.CharDataSourceDict()
+    list_1 = BaseCharVersion.CharDataSourceDict()
     list_1.description = "desc1"
     list_1.dict_type = "typeA"
-    list_2 = CharVersion.CharDataSourceDict()
+    list_2 = BaseCharVersion.CharDataSourceDict()
     list_2.description = "desc2"
     list_2.dict_type = "typeA"
-    list_3 = CharVersion.CharDataSourceDict()
+    list_3 = BaseCharVersion.CharDataSourceDict()
     list_3.description = "desc3"
     list_3.dict_type = "typeB"
-    list_4 = CharVersion.CharDataSourceDict()
+    list_4 = BaseCharVersion.CharDataSourceDict()
     list_4.description = "desc4"
     list_4.dict_type = "typeB"
     list_4.default_write = True
-    list_5 = CharVersion.CharDataSourceDict()
+    list_5 = BaseCharVersion.CharDataSourceDict()
     list_5.description = "desc_generic"
     list_5.dict_type = "type_generic"
-    list_6 = CharVersion.CharDataSourceDict()
+    list_6 = BaseCharVersion.CharDataSourceDict()
     list_6.description = "desc_generic"
     list_6.dict_type = "type_generic"
 
-    cv = CharVersion.CharVersion(initial_lists=[list_1, list_2, list_3, list_4, list_5, list_6])
+    cv = BaseCharVersion.BaseCharVersion(initial_lists=[list_1, list_2, list_3, list_4, list_5, list_6])
     assert cv.get_data_source(target_desc="desc1") is list_1
     assert cv.get_data_source(target_desc="desc2") is list_2
     assert cv.get_data_source(target_desc="desc_generic") is list_5
@@ -113,7 +113,7 @@ def test_charversion_utils():
     cv.set_input("y", "2", target_type="typeB")
     assert list_3["y"] == 2
 
-    class OnlyParsed(CharVersion.CharDataSource):
+    class OnlyParsed(BaseCharVersion.CharDataSource):
         stores_input_data = False
         stores_parsed_data = True
 

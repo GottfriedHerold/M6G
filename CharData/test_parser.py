@@ -1,5 +1,5 @@
 from . import Parser
-from . import CharVersion
+from . import BaseCharVersion
 from . import CharExceptions
 
 p = Parser.parser.parse
@@ -178,10 +178,10 @@ def test_list():
     assert evp("[1]") == [1]
     assert evp("[1+1] + [2+2,]") == [2, 4]
 
-def test_lookups(empty3cv: 'CharVersion.CharVersion'):
-    # L1: CharVersion.UserDataSet = empty3cv.lists[0]
-    # L2: CharVersion.UserDataSet = empty3cv.lists[1]
-    # L3: CharVersion.CoreRuleDataSet = empty3cv.lists[2]  # Core rule dataset
+def test_lookups(empty3cv: 'BaseCharVersion.BaseCharVersion'):
+    # L1: BaseCharVersion.UserDataSet = empty3cv.lists[0]
+    # L2: BaseCharVersion.UserDataSet = empty3cv.lists[1]
+    # L3: BaseCharVersion.CoreRuleDataSet = empty3cv.lists[2]  # Core rule dataset
     l1set_from_string = lambda x, y: empty3cv.set_input(key=x, value=y, target_desc="D1")
     l2set_from_string = lambda x, y: empty3cv.set_input(key=x, value=y, target_desc="D2")
     l3set_from_string = lambda x, y: empty3cv.set_input(key=x, value=y, target_desc="D3")
