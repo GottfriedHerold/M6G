@@ -5,4 +5,4 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'CharGenNG.settings')
 import django
 django.setup()
 
-# required to make
+# required to make django models work standalone.

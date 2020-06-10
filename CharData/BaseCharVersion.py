@@ -629,8 +629,8 @@ class CharDataSource:
     type_unique: bool = False  # Only one data source with the given dict_type must be present in a BaseCharVersion.
 
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
-    input_data: "Union[Mapping, MutableMapping]"  # self.storage is where input data is stored if stored_input_data is set
-    parsed_data: "Union[Mapping, MutableMapping]"  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
+    input_data: Union[Mapping, MutableMapping]  # self.storage is where input data is stored if stored_input_data is set
+    parsed_data: Union[Mapping, MutableMapping]  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
 
     input_parser = staticmethod(Parser.input_string_to_value)  # parser to transform input values to parsed_data.
 
