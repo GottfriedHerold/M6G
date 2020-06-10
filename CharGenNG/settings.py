@@ -58,6 +58,10 @@ MIDDLEWARE = [
 ROOT_URLCONF = 'CharGenNG.urls'
 
 def urlarg(*args, **kwargs):
+    """
+    Used in jinja2 environment.
+    Allows to use href = {{ urlarg(name) }} without adding "'s and escaping.
+    """
     return jinja2.Markup('"' + reverse(*args, **kwargs) + '"')
 
 def http_jinja_env(**options):

@@ -13,6 +13,8 @@ login_logger = logging.getLogger('chargen.browser.logins')
 # def loginview(request):
 #    return render(request, "login.html", using="HTTPJinja2")
 
+#TODO: Control various processing by class variables
+
 class CharGenView(View):
 
     template = "main.html"

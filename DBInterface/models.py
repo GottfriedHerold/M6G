@@ -328,7 +328,9 @@ class CharVersionModel(models.Model):
         Creates a new char version. Parameters are taken from parent char version unless overridden by arguments
         to create_char_version. Note that both owner and parent need to be saved in the db.
         If parent is None, owner needs to be set, this creates a root char version.
-        Note that this function may change owner / parent.owner
+        parent.owner may be unequal to owner: In this case, we create a a copy of parent as
+        a new root char version for owner.
+        Note that this function may change owner / parent.owner to set metadata.
         """
         changed_owner = False
         if parent:

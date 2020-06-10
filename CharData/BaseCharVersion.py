@@ -319,7 +319,7 @@ class BaseCharVersion:
         #
         # The issue is the following: Normally, we just need to take the first output from iterator. Call the
         # rest of the iterator its tail.
-        # However, if this output is an AST like parse('=$AUTO + $AUTO'), evaluation of that will recursively call
+        # However, if this output is an AST like parse('$AUTO + $AUTO'), evaluation of that will recursively call
         # get with iterator set to the tail, TWICE. We cannot guarantee that arbitrary iterables support being iterated
         # over twice (lists support that, generator expressions don't). In general, iteration mutates the iterable.
         # We could copy tail into a list, but iterating locator is generally very expensive, so we only wish to do that
