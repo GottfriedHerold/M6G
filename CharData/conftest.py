@@ -1,15 +1,16 @@
 import pytest
 
+import CharData.DataSources
 from . import BaseCharVersion
 
 #Simple BaseCharVersion that is just for testing lookups and the parser.
 @pytest.fixture(scope='function')
 def empty3cv():
-    DataSet1 = BaseCharVersion.CharDataSourceDict()
+    DataSet1 = CharData.DataSources.CharDataSourceDict()
     DataSet1.description = "D1"
-    DataSet2 = BaseCharVersion.CharDataSourceDict()
+    DataSet2 = CharData.DataSources.CharDataSourceDict()
     DataSet2.description = "D2"
-    DataSet3 = BaseCharVersion.CharDataSourceDict()
+    DataSet3 = CharData.DataSources.CharDataSourceDict()
     DataSet3.description = "D3"
 
     # DataSet1 = BaseCharVersion.UserDataSet()

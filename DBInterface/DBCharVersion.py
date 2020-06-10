@@ -1,4 +1,5 @@
-from CharData.BaseCharVersion import BaseCharVersion, CharDataSource
+from CharData.BaseCharVersion import BaseCharVersion
+from CharData.DataSources import CharDataSource
 from .models import DictEntry, MANAGER_TYPE
 from collections import abc
 
