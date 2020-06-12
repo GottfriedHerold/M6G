@@ -1,14 +1,18 @@
 from typing import Union, Mapping, MutableMapping, Any, Iterable, Dict, Optional
 
 from CharData import Parser, Regexps
-
+import logging
+logger = logging.getLogger("chargen.data_sources")
 
 class CharDataSource:
     """
     Abstract Base class for Char Data sources.
     This implements some common behaviour and is supposed to be overridden.
     """
-    contains_restricted: bool = True  # Data source may contain restricted keys. Not necessarily enforced.
+
+    # These two are not necessarily enforced by the setters or the underlying container(s); violating the restrictions
+    # this will make lookup fail to find things in unspecified ways.
+    contains_restricted: bool = True  # Data source may contain restricted keys.
     contains_unrestricted: bool = True  # Data source may contain unrestricted keys.
     # description and dict_type are string that describe the data source.
     # If unique, BaseCharVersion can look up the data source by this.
@@ -20,7 +24,10 @@ class CharDataSource:
     stores_parsed_data: bool  # stores parsed data.
     type_unique: bool = False  # Only one data source with the given dict_type must be present in a BaseCharVersion.
 
+    # The following class/object attributes are not part of the interface, but employed by the default implementation.
+
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
+    # (alternatively, override all methods that use input_data/parsed_data)
     input_data: Union[Mapping, MutableMapping]  # self.storage is where input data is stored if stored_input_data is set
     parsed_data: Union[Mapping, MutableMapping]  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
 
@@ -162,7 +169,7 @@ class CharDataSource:
 
 class CharDataSourceDict(CharDataSource):
     """
-    Wrapper dicts (one for input data / one for parsed) -> CharDataSource. Used for testing.
+    Wrapper for dicts (one for input data / one for parsed) -> CharDataSource. Used for testing only.
     """
     dict_type = "Char data source dict"
     stores_input_data = True

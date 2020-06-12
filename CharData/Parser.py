@@ -1246,7 +1246,7 @@ def p_functiondef(p):
 parser = yacc.yacc()
 
 
-def input_string_to_value(input_string: str) -> Union[int, float, str, AST, DataError, None]:
+def input_string_to_value(input_string: str, /) -> Union[int, float, str, AST, DataError, None]:
     """
         Parses an input string that a user inputs and parses it either as a string, a number or a formula,
         depending on whether it starts/ends with =, ", '

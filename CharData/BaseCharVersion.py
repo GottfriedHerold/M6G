@@ -47,7 +47,7 @@ _Arg_Type = TypeVar("_Arg_Type")
 _ALL_SUFFIX = "_all"
 
 
-def _act_on_data_source(action: Callable[..., _Ret_Type]) -> Callable[..., _Ret_Type]:
+def _act_on_data_source(action: Callable[..., _Ret_Type], /) -> Callable[..., _Ret_Type]:
     """
     Decorator that takes a BaseCharVersion method action(self, source, ...)
     and turns into a method action(self, ..., where=None, target_type=None, target_desc=None) with keyword-only
@@ -116,18 +116,18 @@ class BaseCharVersion:
         self.update_metadata()
         return
 
-    def __enter__(self):
-        pass
+    # def __enter__(self):
+    #     pass
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        return False
+    # def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    #    return False
 
     @property
     def lists(self) -> List[CharDataSource]:
         return self._lists
 
     @lists.setter
-    def lists(self, new_lists):
+    def lists(self, new_lists, /):
         self._lists = new_lists
         self.update_metadata()
 
