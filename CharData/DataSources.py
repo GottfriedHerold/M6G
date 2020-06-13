@@ -1,4 +1,5 @@
-from typing import Union, Mapping, MutableMapping, Any, Iterable, Dict, Optional
+from typing import Union, Mapping, MutableMapping, Any, Iterable, Dict, Optional, ClassVar
+from . CharVersionConfig import CVConfig
 
 from CharData import Parser, Regexps
 import logging
@@ -15,14 +16,19 @@ class CharDataSource:
     contains_restricted: bool = True  # Data source may contain restricted keys.
     contains_unrestricted: bool = True  # Data source may contain unrestricted keys.
     # description and dict_type are string that describe the data source.
-    # If unique, BaseCharVersion can look up the data source by this.
+    # If appropriately unique, BaseCharVersion can look up the data source by either description/dict_type or their combination.
     description: str = "nondescript"
-    dict_type: str = "user defined"
+    dict_type: str = "user defined"  # This may be overridden at the class or instance level.
+    type_unique: bool = False  # At most one data source with the given dict_type must be present in a BaseCharVersion.
+    # Note that defining multiple DataSource classes with the same dict_type, but only some setting type_unique may
+    # or may not work as intended (as in: may not detect errors)
+
     default_write: bool = False  # Writes go into this data source by default. At most one data source per BaseCharVersion.
     read_only: bool = False  # Cannot write / delete if this is set.
-    stores_input_data: bool  # stores input data.
-    stores_parsed_data: bool  # stores parsed data.
-    type_unique: bool = False  # Only one data source with the given dict_type must be present in a BaseCharVersion.
+    # At least one of these two must be set by derived class. We do not allow setting this on the instance level.
+    stores_input_data: ClassVar[bool]  # stores input data.
+    stores_parsed_data: ClassVar[bool]  # stores parsed data.
+
 
     # The following class/object attributes are not part of the interface, but employed by the default implementation.
 
@@ -32,6 +38,8 @@ class CharDataSource:
     parsed_data: Union[Mapping, MutableMapping]  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
 
     input_parser = staticmethod(Parser.input_string_to_value)  # parser to transform input values to parsed_data.
+
+    # TODO: dir
 
     def _check_key(self, key: str) -> bool:
         """
@@ -65,6 +73,8 @@ class CharDataSource:
     def __getitem__(self, key: str) -> Any:
         """
         Gets the parsed item stored under this key.
+        TODO: Is raising KeyError on non-existent keys a requirement?
+
         """
         if self.stores_parsed_data:
             return self.parsed_data[key]
@@ -74,6 +84,7 @@ class CharDataSource:
     def bulk_get_items(self, keys: Iterable[str]) -> Dict[str, Any]:
         """
         Get multiple data. Returns a dict. May be overridden for efficiency.
+        TODO: Prescribe behaviour on non-existent keys? Default?
         """
         return {key: self[key] for key in keys}
 
@@ -81,11 +92,13 @@ class CharDataSource:
         """
         Sets the ("parsed", i.e. raw python) value stored under key.
         Note that if the data source stores input data, this function makes no sense.
+        (This would make parsed and input data inconsistent)
         """
         if not self._check_key(key):
             raise KeyError("Data source does not support storing this key")
         if self.stores_input_data or self.read_only:
             raise TypeError("Data source does not support storing parsed data")
+        assert self.stores_parsed_data
         self.parsed_data[key] = value
 
     def bulk_set_items(self, key_vals: Dict[str, object]) -> None:
@@ -165,6 +178,11 @@ class CharDataSource:
 
     def __str__(self) -> str:
         return "Data source of type " + self.dict_type + ": " + self.description
+
+    def __new__(cls):
+        if not (cls.stores_parsed_data or cls.stores_input_data):
+            raise ValueError("This DataSource can not store any data")
+        return super().__new__(cls)
 
 
 class CharDataSourceDict(CharDataSource):

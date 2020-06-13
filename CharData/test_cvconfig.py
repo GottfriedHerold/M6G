@@ -1,10 +1,14 @@
 from .CharVersionConfig import CVConfig, BaseCVManager
+from typing import Iterable, TYPE_CHECKING
+if TYPE_CHECKING:
+    from .DataSources import CharDataSource
 
 def test_cv_config():
 
     class TestCVManager(BaseCVManager):
 
         log = list()  # we let our Managers append to the log to test that its functions are called in the correct order.
+        id: int
 
         def make_append_log(self, x):
             def fun(arg):
@@ -30,11 +34,11 @@ def test_cv_config():
             if self.id == 1:
                 self.log.append(50)
 
-        def make_data_source(self, *, target: list):
-            target.append(-self.id)
+        def get_data_sources(self) -> Iterable['CharDataSource']:
             if self.id == 2:
                 self.cv_config.add_to_front_of_post_process_queue(lambda l: l+[10])
                 self.cv_config.add_to_front_of_post_process_queue(self.make_append_log(1000))
+            return [-self.id]  # wrong type is intended for now. We don't actually use a data source.
 
 
 

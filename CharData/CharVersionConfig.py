@@ -1,9 +1,10 @@
 import json
-from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Any, Optional, List
+from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Any, Optional, List, Iterable
 from collections import deque
 from functools import wraps
 if TYPE_CHECKING:
     from .BaseCharVersion import BaseCharVersion
+    from .DataSources import CharDataSource
 import logging
 config_logger = logging.getLogger('chargen.CVConfig')
 
@@ -20,7 +21,7 @@ class CVConfig:
     notably, the current version does not support deferred DB constraints, so these are not enforced at the DB level
     ATM). This needs to be taken into account at the DB management layer, which should not require JSON parsing.
     So we have a correspondence for recipes: python dict <--> JSON + possibly a few other data)
-    TODO: The above is under reconsideration
+    TODO: The above is under reconsideration and will be changed.
 
     Essentially, a recipe is a list of entries that contain 'type', 'args', 'kwargs', where type denotes an
     appropriate callable that is called with args and kwargs to construct the actual object (called a CVManager)
@@ -68,7 +69,7 @@ class CVConfig:
     ]
     _edit_mode: bool
     managers: Optional[List['BaseCVManager']]
-    char_version: Optional['BaseCharVersion']
+    char_version: Optional['BaseCharVersion']  # weak-ref?
     post_process: deque
 
     def __init__(self, *, from_python: dict = None, from_json: str = None, edit_mode: bool = None,
@@ -293,8 +294,11 @@ class BaseCVManager:
     def post_setup(self):
         pass
 
-    def make_data_source(self, *, target: list):
-        pass
+    def get_data_sources(self) -> Iterable['CharDataSource']:
+        return []
+
+    def make_data_source(self, *, target: List['CharDataSource']):
+        target.extend(self.get_data_sources())
 
     def validate_config(self):
         pass
