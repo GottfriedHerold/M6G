@@ -36,6 +36,7 @@ from . import Regexps
 from . import Parser
 from . import CharExceptions
 from . import ListBuffer
+from . import CharVersionConfig
 from functools import wraps
 from itertools import groupby, chain
 
@@ -79,12 +80,14 @@ class BaseCharVersion:
     in order to add synchronization abilities with a database.
     """
 
-    # these (object, not class-)attributes are possibly written to.
+    # these (object-level) attributes are possibly written to by the default implementation.
     # To be overwritten by @property - objects in derived classes to tie to db.
 
     creation_time: datetime  # only written to if we creation_time is explicitly passed.
     last_change: datetime  # updated at each change
     description: str
+
+    edit_mode: bool
 
     def __init__(self, *, initial_lists: List[CharDataSource] = None, **kwargs):
         if initial_lists is None:
@@ -93,11 +96,11 @@ class BaseCharVersion:
             self._lists = initial_lists
 
         # Internally used to speed up lookups:
-        self.unrestricted_lists = []  # indices of data sources that contain unrestricted keys in lookup order
-        self.restricted_lists = []  # indices of data sources that contain restricted keys in lookup order
-        self.type_lookup = {}  # first index of data source for a given dict_type
-        self.desc_lookup = {}  # first index of data source for a given description
-        self.default_target = None  # index that writes go by default
+        self._unrestricted_lists = []  # indices of data sources that contain unrestricted keys in lookup order
+        self._restricted_lists = []  # indices of data sources that contain restricted keys in lookup order
+        self._type_lookup = {}  # first index of data source for a given dict_type
+        self._desc_lookup = {}  # first index of data source for a given description
+        self._default_target = None  # index that writes go by default
 
         # These parameters are only set if they occur in kwargs at all
         # (Note that creation_time = None is handled differently from creation_time not present)
@@ -113,7 +116,7 @@ class BaseCharVersion:
             self.last_change: datetime = kwargs["last_change"]
         if "description" in kwargs:
             self.description: str = kwargs["description"]
-        self.update_metadata()
+        self._update_list_lookup_info()
         return
 
     # def __enter__(self):
@@ -129,34 +132,34 @@ class BaseCharVersion:
     @lists.setter
     def lists(self, new_lists, /):
         self._lists = new_lists
-        self.update_metadata()
+        self._update_list_lookup_info()
 
-    def update_metadata(self) -> None:
+    def _update_list_lookup_info(self) -> None:
         """
-        Called to update internal data. Needs to be externally called after lists change.
-        E.g. after x.lists.insert for BaseCharVersion object x.
-        TODO: This interface is not stable
-        :return: None
+        Called to update internal data related to lookup on the data sources.
+        Note that modifying list by an external caller is not recommended anyway.
+        Also note that BaseCharVersion().lists.insert(...) bypasses @lists.setter.
+        May needs to be called externally after self.lists changes (which you should not do)
         """
-        self.unrestricted_lists = []
-        self.restricted_lists = []
-        self.type_lookup = {}
-        self.desc_lookup = {}
-        self.default_target = None
+        self._unrestricted_lists = []
+        self._restricted_lists = []
+        self._type_lookup = {}
+        self._desc_lookup = {}
+        self._default_target = None
 
         for i in range(len(self.lists)):
             list_i: CharDataSource = self.lists[i]
             if list_i.contains_restricted:
-                self.restricted_lists += [i]
+                self._restricted_lists += [i]
             if list_i.contains_unrestricted:
-                self.unrestricted_lists += [i]
-            if list_i.dict_type not in self.type_lookup:
-                self.type_lookup[list_i.dict_type] = i
+                self._unrestricted_lists += [i]
+            if list_i.dict_type not in self._type_lookup:
+                self._type_lookup[list_i.dict_type] = i  # same as dict.setdefault below, but we have an ...else branch.
             elif list_i.type_unique:
                 raise RuntimeError("Can only put one DataSource of type " + list_i.dict_type + " into CharVersion")
-            self.desc_lookup.setdefault(list_i.description, i)
+            self._desc_lookup.setdefault(list_i.description, i)
             if list_i.default_write:
-                self.default_target = i
+                self._default_target = i
 
     # Some get/set functions require specifying a data source. This can be specified either by the where argument
     # (an integer as index into the list of data sources OR a data source itself) or by target_type and/or target_desc.
@@ -169,14 +172,14 @@ class BaseCharVersion:
         """
         if target_type is None:
             if target_desc is None:
-                return self.default_target
+                return self._default_target
             else:
-                return self.desc_lookup[target_desc]
+                return self._desc_lookup[target_desc]
         else:
             if target_desc is None:
-                return self.type_lookup[target_type]
+                return self._type_lookup[target_type]
             else:
-                return next(filter(lambda i: self.lists[i].dict_type == target_type and self.lists[i].description == target_desc, range(len(self.lists))), None)
+                return next(filter(lambda data_source: data_source.dict_type == target_type and data_source.description == target_desc, self.lists), None)
 
     def _get_index_from_list(self, source: CharDataSource) -> int:
         """
@@ -392,9 +395,9 @@ class BaseCharVersion:
             restricted = not Regexps.re_key_regular.fullmatch(query)
         if indices is None:
             if restricted:
-                indices = self.restricted_lists
+                indices = self._restricted_lists
             else:
-                indices = self.unrestricted_lists
+                indices = self._unrestricted_lists
 
         split_key = query.split('.')
         keylen = len(split_key)
@@ -431,8 +434,8 @@ class BaseCharVersion:
         """
         assert Regexps.re_funcname_lowercased.fullmatch(query)
         if indices is None:
-            indices1 = self.restricted_lists
-            indices2 = self.unrestricted_lists
+            indices1 = self._restricted_lists
+            indices2 = self._unrestricted_lists
         else:
             indices1 = indices2 = indices
         s = '__fun__.' + query
@@ -507,7 +510,6 @@ class BaseCharVersion:
             where = self._get_index_from_list(where)
         ret[1] = where
         return ret
-
 
     def bulk_process(self, commands: list) -> dict:
         """
