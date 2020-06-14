@@ -258,7 +258,7 @@ class CVConfig:
         self.run_on_managers('post_setup')
 
     @_Functors.add_post_processing
-    def make_data_sources(self) -> list:
+    def make_data_sources(self) -> List['CharDataSource']:
         """
         Creates the lists of data_sources from the given CVConfig.
         """

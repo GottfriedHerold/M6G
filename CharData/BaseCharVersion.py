@@ -61,9 +61,9 @@ def _act_on_data_source(action: Callable[..., _Ret_Type], /) -> Callable[..., _R
         if where is None:
             where = self.get_target_index(target_type, target_desc)
         if isinstance(where, int):
-            return action(self, self.lists[where], *args, **kwargs)
+            return action(self, self.data_sources[where], *args, **kwargs)
         else:
-            if where not in self.lists:
+            if where not in self.data_sources:
                 raise LookupError("Invalid data source: Not in this BaseCharVersion's data list.")
             return action(self, where, *args, **kwargs)
     if 'source' in _inner.__annotations__:
@@ -87,13 +87,34 @@ class BaseCharVersion:
     last_change: datetime  # updated at each change
     description: str
 
-    edit_mode: bool
+    _config: Optional[CharVersionConfig.CVConfig]
 
-    def __init__(self, *, initial_lists: List[CharDataSource] = None, **kwargs):
-        if initial_lists is None:
-            self._lists = []
+    def __init__(self, *, data_sources: List[CharDataSource] = None, config: CharVersionConfig.CVConfig = None, **kwargs):
+        """
+        Creates a BaseCharConfig. You should set either initial_list or config to initialize its lists (if config is set,
+        it will use config to set up the lists). Note that config is the preferred way; the data_sources interface exists
+        mostly for debugging and testing purposes, may not be present in subclasses, and may be removed altogether.
+
+        Other keyword-only arguments, if present, forces writing to self; (creation_time, last_change, description).
+        These values are never read back in the base class (but written to from multiple places) and are provided for derived classes.
+        """
+
+        # Note that we do not have a make_from_config staticmethod that calls __init__, because
+        # config needs to be associated to the CharVersion object before config.setup_managers() and config.make_data_sources() is called.
+        # (This should not really matter for config.setup_managers, but we want to give config.make_data_source() the
+        # option to inspect and modify the CharVersion object)
+        self._config = config
+        if config is not None:
+            if data_sources:
+                raise ValueError("Do not provide both initial lists and config")
+            config.char_version = self  # consider turning into a weak-ref
+            config.setup_managers()
+            self._data_sources = config.make_data_sources()
+
+        elif data_sources is None:
+            self._data_sources = []
         else:
-            self._lists = initial_lists
+            self._data_sources = data_sources
 
         # Internally used to speed up lookups:
         self._unrestricted_lists = []  # indices of data sources that contain unrestricted keys in lookup order
@@ -126,13 +147,19 @@ class BaseCharVersion:
     #    return False
 
     @property
-    def lists(self) -> List[CharDataSource]:
-        return self._lists
+    def data_sources(self) -> List[CharDataSource]:
+        return self._data_sources
 
-    @lists.setter
-    def lists(self, new_lists, /):
-        self._lists = new_lists
+    @data_sources.setter
+    def data_sources(self, new_lists, /):
+        self._data_sources = new_lists
         self._update_list_lookup_info()
+
+    @property
+    def config(self) -> Optional[CharVersionConfig.CVConfig]:
+        return self._config
+
+    #setter for config?
 
     def _update_list_lookup_info(self) -> None:
         """
@@ -147,8 +174,8 @@ class BaseCharVersion:
         self._desc_lookup = {}
         self._default_target = None
 
-        for i in range(len(self.lists)):
-            list_i: CharDataSource = self.lists[i]
+        for i in range(len(self.data_sources)):
+            list_i: CharDataSource = self.data_sources[i]
             if list_i.contains_restricted:
                 self._restricted_lists += [i]
             if list_i.contains_unrestricted:
@@ -179,7 +206,7 @@ class BaseCharVersion:
             if target_desc is None:
                 return self._type_lookup[target_type]
             else:
-                return next(filter(lambda data_source: data_source.dict_type == target_type and data_source.description == target_desc, self.lists), None)
+                return next(filter(lambda data_source: data_source.dict_type == target_type and data_source.description == target_desc, self.data_sources), None)
 
     def _get_index_from_list(self, source: CharDataSource) -> int:
         """
@@ -188,7 +215,7 @@ class BaseCharVersion:
         Raises IndexError if source is not in self.lists
         """
         try:
-            return next(filter(lambda i: self.lists[i] is source, range(len(self.lists))))
+            return next(filter(lambda i: self.data_sources[i] is source, range(len(self.data_sources))))
         except StopIteration:
             raise IndexError("Data source not contained in CharVersion")
 
@@ -291,7 +318,7 @@ class BaseCharVersion:
             return default
         # Note that get_input should not throw an exception when stores_input_data is False,
         # but rather return some value indicating error (None, "", or an error message string)
-        return self.get_input(query, where=where), self.lists[where].stores_input_data
+        return self.get_input(query, where=where), self.data_sources[where].stores_input_data
 
     def bulk_get_input_sources(self, keys: str, *, default=("", True)) -> Dict[str, Tuple[str, bool]]:
         return {key: self.get_input_source(key, default=default) for key in keys}
@@ -344,7 +371,7 @@ class BaseCharVersion:
                 return CharExceptions.DataError(query + " not found")
             return default
 
-        ret = self.lists[where][located_key]
+        ret = self.data_sources[where][located_key]
 
         # If ret is an AST, we need to evaluate it (otherwise, we return the result directly). Note that string literals
         # without = are stored directly, not as ASTs.
@@ -447,7 +474,7 @@ class BaseCharVersion:
 
     def has_value(self, pair: Tuple[str, int]) -> bool:
         """Check whether candidate pair (as output by function_candidates or lookup_candidates) actually exists"""
-        return pair[0] in self.lists[pair[1]]
+        return pair[0] in self.data_sources[pair[1]]
 
     def find_lookup(self, query: str, indices: Iterable[int] = None) -> Generator[Tuple[str, int], None, None]:
         """
@@ -583,14 +610,14 @@ class BaseCharVersion:
                 changed = True
             while action_id == 1:  # set_input
                 # Note that args is a list of pairs. dict actually converts that.
-                self.lists[target_id].bulk_set_inputs(key_vals=dict(args))
+                self.data_sources[target_id].bulk_set_inputs(key_vals=dict(args))
                 action_id, target_id, args = next(it)
             while action_id == 2:  # set
                 # again, args is a list of pairs, whereas bulk_set_items requires a dict.
-                self.lists[target_id].bulk_set_items(key_vals=dict(args))
+                self.data_sources[target_id].bulk_set_items(key_vals=dict(args))
                 action_id, target_id, args = next(it)
             while action_id == 3:  # delete
-                self.lists[target_id].bulk_del_items(keys=args)
+                self.data_sources[target_id].bulk_del_items(keys=args)
                 action_id, target_id, args = next(it)
             if action_id == 4:  # get_source, can appear only once
                 assert target_id == 0
@@ -600,7 +627,7 @@ class BaseCharVersion:
                 result['get_input'] = {}
             while action_id == 5:  # get_input
                 target_id: int
-                result['get_input'].update(self.lists[target_id].bulk_get_inputs(keys=args))
+                result['get_input'].update(self.data_sources[target_id].bulk_get_inputs(keys=args))
                 action_id, target_id, args = next(it)
             if action_id == 6:  # get
                 assert target_id == 0

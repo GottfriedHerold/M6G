@@ -16,4 +16,4 @@ def empty3cv():
     # DataSet1 = BaseCharVersion.UserDataSet()
     # DataSet2 = BaseCharVersion.UserDataSet()
     # DataSet3 = BaseCharVersion.CoreRuleDataSet()
-    return BaseCharVersion.BaseCharVersion(initial_lists=[DataSet1, DataSet2, DataSet3])
+    return BaseCharVersion.BaseCharVersion(data_sources=[DataSet1, DataSet2, DataSet3])

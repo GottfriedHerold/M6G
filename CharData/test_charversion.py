@@ -101,7 +101,7 @@ def test_charversion_utils():
     list_6.description = "desc_generic"
     list_6.dict_type = "type_generic"
 
-    cv = BaseCharVersion.BaseCharVersion(initial_lists=[list_1, list_2, list_3, list_4, list_5, list_6])
+    cv = BaseCharVersion.BaseCharVersion(data_sources=[list_1, list_2, list_3, list_4, list_5, list_6])
     assert cv.get_data_source(target_desc="desc1") is list_1
     assert cv.get_data_source(target_desc="desc2") is list_2
     assert cv.get_data_source(target_desc="desc_generic") is list_5
@@ -125,10 +125,10 @@ def test_charversion_utils():
     list_7.description = "desc_p"
     list_7.dict_type = "typeP"
 
-    cv.lists = [list_2, list_4, list_7]
+    cv.data_sources = [list_2, list_4, list_7]
     assert cv.get_data_source(target_type="typeB") is list_4
 
-    cv.lists = [list_1, list_2, list_3, list_4, list_5, list_6, list_7]
+    cv.data_sources = [list_1, list_2, list_3, list_4, list_5, list_6, list_7]
 
     cv.bulk_set({'delme': 1, 'delmetoo': '2'}, target_type ='typeP')
     cv.bulk_set_input({'delmetootoo': '=2'}, where =2)
