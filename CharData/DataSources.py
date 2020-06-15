@@ -40,6 +40,7 @@ class CharDataSource:
     input_parser = staticmethod(Parser.input_string_to_value)  # parser to transform input values to parsed_data.
 
     # TODO: dir
+    # TODO: (prefix?) restriction
 
     def _check_key(self, key: str) -> bool:
         """

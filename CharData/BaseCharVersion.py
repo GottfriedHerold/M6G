@@ -27,7 +27,7 @@ do not edit the data source object directly, but through methods provided by Bas
 from datetime import datetime, timezone
 # from collections import UserDict
 # if TYPE_CHECKING:
-from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict
+from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator
 # import logging
 # logger = logging.getLogger()
 
@@ -38,7 +38,7 @@ from . import CharExceptions
 from . import ListBuffer
 from . import CharVersionConfig
 from functools import wraps
-from itertools import groupby, chain
+import itertools
 
 from .DataSources import CharDataSource
 
@@ -101,8 +101,9 @@ class BaseCharVersion:
 
         # Note that we do not have a make_from_config staticmethod that calls __init__, because
         # config needs to be associated to the CharVersion object before config.setup_managers() and config.make_data_sources() is called.
-        # (This should not really matter for config.setup_managers, but we want to give config.make_data_source() the
-        # option to inspect and modify the CharVersion object)
+        # (This should not really matter much for config.setup_managers, but we need to give config.make_data_source()
+        # the option to inspect and modify the CharVersion object. In particular, data sources that refer to the DB
+        # may need to to obtain the primary key of the CharVersion object.)
         self._config = config
         if config is not None:
             if data_sources:
@@ -159,7 +160,7 @@ class BaseCharVersion:
     def config(self) -> Optional[CharVersionConfig.CVConfig]:
         return self._config
 
-    #setter for config?
+    #  setter for config? We basically would need to create a new object
 
     def _update_list_lookup_info(self) -> None:
         """
@@ -320,7 +321,7 @@ class BaseCharVersion:
         # but rather return some value indicating error (None, "", or an error message string)
         return self.get_input(query, where=where), self.data_sources[where].stores_input_data
 
-    def bulk_get_input_sources(self, keys: str, *, default=("", True)) -> Dict[str, Tuple[str, bool]]:
+    def bulk_get_input_sources(self, keys: Iterable[str], *, default=("", True)) -> Dict[str, Tuple[str, bool]]:
         return {key: self.get_input_source(key, default=default) for key in keys}
 
     def bulk_get(self, queries: Iterable[str], default=None) -> Dict[str, Any]:
@@ -493,10 +494,10 @@ class BaseCharVersion:
     def _normalize_action(self, action: dict) -> list:
         """
         Helper function for bulk_process.
-        Turns an action (entry of commands argument, which is a dict) into a list [action-id, target-id, args]
+        Turns an action (entry of commands argument, which is a dict) into a 3-element list [action-id, target-id, args]
         where action-id is a integral id (that determines the order in which commands are executed)
-        targt-id is an integral index into lists for this action
-        and args is the argument list of type appropriate for the action.
+        target-id is an integral index into lists for this action
+        and args is the arguments of type appropriate for the action (an iterable)
         """
         # Note: Code in bulk_process relies on the order given here.
         ret = [None, None, None]
@@ -519,7 +520,7 @@ class BaseCharVersion:
             ret[0] = 4
             ret[1] = 0  # meaningless. Fixing to an arbitrary constant value.
             ret[2] = action['queries']
-            return ret
+            return ret  # to avoid setting ret[1] below
         elif action['action'] == 'get_input':
             ret[0] = 5
             ret[2] = action['keys']
@@ -527,7 +528,7 @@ class BaseCharVersion:
             ret[0] = 6
             ret[1] = 0  # meaningless. Fixing to an arbitrary constant value.
             ret[2] = action['queries']
-            return ret
+            return ret  # to avoid setting ret[1] below
         else:
             raise ValueError("invalid value for 'action' in command given to bulk_process")
         where: Union[CharDataSource, None, int] = action.get('where')
@@ -565,55 +566,56 @@ class BaseCharVersion:
 
                 Note: The whole point of this function is that the actions are reordered
         """
-        # turn each command into a triple [action-id:int, target-id:int, args:list]
+        # turn each command into a triple [action-id:int, target-id:int, args:iterable]
         commands = [self._normalize_action(command) for command in commands]
 
         # Sort commands lexicographically, primarily by action-id, secondarily by target-id
         commands.sort(key=lambda command: command[1])  # sort by target-id
         commands.sort(key=lambda command: command[0])  # stable-sort by action-id
 
-        # collapse all actions with shared target-id and action-id into a single action, with args the concatenation of the individual actions' args (these args are lists):
-        # groupby(commands, lambda command: (command[0], command[1]) creates an iterator that returns
-        # pairs (ids,command_list) with ids = (command[0], command[1],) = (action-id, target-id,) and command_list an non-empty iterable
-        # over all commands c matching this (action-id, target-id,) pair. So command_list is an iterable with
-        # with list(command_list) = [command_1, command_2, ...]. Applying map(lambda command:command[2], command_list) gives
-        # list (map(lambda command:command[2], command_list)) == [command_1[2], command_2[2], ...].
-        # Note command_1[2] == args_1 is exactly some individual action's args parameter. Flattening the list-of-lists via itertools.chain.from_iterable gives
-        # list(chain.from_iterable(...) ) == [items from command_1[2], items from command_2[2], ...] which is what we want.
-        ### processed_commands = [[*ids, list(chain.from_iterable(map(lambda command:command[2], command_list)))] for ids, command_list in groupby(commands, lambda command: (command[0], command[1],))]
+        # We not wish to collapse all actions with shared target-id and action-id into a single action,
+        # with args the concatenation of the individual actions' args (these args are iterables)
+        # By using transformations on iterables, we do this in a way that is agnostic to the appropriate container for
+        # args; we just concatenates them with itertools.chain.from_iterable
 
-        # Same as above, except the result in not stored in a list, but kept as an iterator
-        # that outputs triples action_id, target_id, args
-        # where args is an iterator (rather than a list). Note that previous outputs args become invalid if processed_commands is iterated.
-        # and processed_commands can only be iterated once (these restrictions carry over from groupby)
-        # In particular, this variant is agnostic to the appropriate container for args; it just concatenates them with chain.from_iterable
-        project_12 = lambda x: (x[0], x[1],)
-        commands = groupby(commands, project_12)
+        # group commands according to target-id and action-id:
+        commands = itertools.groupby(commands, lambda x: (x[0], x[1], ))
 
-        project_3 = lambda x: x[2]
-        concat_third = lambda command_list_iterator: chain.from_iterable(map(project_3, command_list_iterator))
+        # Note that commands now is an iterator (tied to the previous value of commands) that returns pairs group_pair == (group-id, group_iterator)
+        # where group-id == (command[0], command[1]) is the (target-id, action-id) pair and group_iterator is a (sub-)iterator
+        # that iterates all commands [target-id, action-id, args] where (target-id, action-id) matches group-id.
+        # Take note of the following restriction of itertools.groupby: Every iterator is single-pass and upon iterating
+        # commands, any previously output group_iterator is invalidated.
+
+        # We now get rid of target-id and action-id in each command (it's contained in group-id already), concatenate
+        # args with itertools.chain.from_iterable and turn everything into triples again:
+
+        def concat_third(group_iterator):
+            return itertools.chain.from_iterable(map(lambda x: x[2], group_iterator))
         processed_commands = map(lambda group_pair: [*group_pair[0], concat_third(group_pair[1])], commands)
+
+        # Be aware that the restrictions from itertools.groupby remain.
 
         result: Dict[str, Any] = {}
         it = iter(processed_commands)
         changed: bool = False  # whether we changed something
 
-        try:
+        try:  # ... except StopIteration below.
             action_id: int
             target_it: int
-            args: Any
+            args: Iterator
             action_id, target_id, args = next(it)
 
             # This code relies on the order set in _normalize_action
 
-            if action_id <= 3:  # action_id 1 to 3 are write operations.
+            if action_id <= 3:  # action_ids 1 to 3 are write operations.
                 changed = True
             while action_id == 1:  # set_input
-                # Note that args is a list of pairs. dict actually converts that.
+                # Note that args is a list of pairs. dict actually converts that. TODO: Change signature of set_inputs?
                 self.data_sources[target_id].bulk_set_inputs(key_vals=dict(args))
                 action_id, target_id, args = next(it)
             while action_id == 2:  # set
-                # again, args is a list of pairs, whereas bulk_set_items requires a dict.
+                # again, args is a list of pairs, whereas bulk_set_items requires a dict (TODO: Change that?)
                 self.data_sources[target_id].bulk_set_items(key_vals=dict(args))
                 action_id, target_id, args = next(it)
             while action_id == 3:  # delete
@@ -629,10 +631,10 @@ class BaseCharVersion:
                 target_id: int
                 result['get_input'].update(self.data_sources[target_id].bulk_get_inputs(keys=args))
                 action_id, target_id, args = next(it)
-            if action_id == 6:  # get
+            if action_id == 6:  # get, can only appear once
                 assert target_id == 0
                 result['get'] = self.bulk_get(queries=args)
-                __, __, __ = next(it)
+                __, __, __ = next(it)  # This is guaranteed to raise StopIteration.
             assert False  # _normalize_action takes care of unknown actions, so we can never reach this
         except StopIteration:
             pass
