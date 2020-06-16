@@ -16,12 +16,8 @@ class CVConfig:
     input pages / which LaTeX templates to use.
 
     It is determined by a JSON-string or equivalently its transformation into a python dict (called a recipe)
-    adhering to a certain format. (Note that some metadata related to edit mode is part of CVConfig, but not part of
-    JSON; this is because these metadata impose restrictions on the database structure(Django is poor at modeling these,
-    notably, the current version does not support deferred DB constraints, so these are not enforced at the DB level
-    ATM). This needs to be taken into account at the DB management layer, which should not require JSON parsing.
-    So we have a correspondence for recipes: python dict <--> JSON + possibly a few other data)
-    TODO: The above is under reconsideration and will be changed.
+    adhering to a certain format. Some metadata is also exposed directly from the dict (edit_mode) for a more
+    convenient interface.
 
     Essentially, a recipe is a list of entries that contain 'type', 'args', 'kwargs', where type denotes an
     appropriate callable that is called with args and kwargs to construct the actual object (called a CVManager)
@@ -62,7 +58,7 @@ class CVConfig:
     """
 
     known_types: ClassVar[Dict[str, Callable]] = {}  # stores known type-identifiers and their callable.
-    python_recipe: dict
+    _python_recipe: dict
     _json_recipe: Optional[str]
     sub_recipes: ClassVar[list] = [  # name of recipe sub-lists that may appear
         {'name': 'data_sources', 'args': [], 'kwargs': {'recipe_type': 'data_source'}},
@@ -72,8 +68,8 @@ class CVConfig:
     char_version: Optional['BaseCharVersion']  # weak-ref?
     post_process: deque
 
-    def __init__(self, *, from_python: dict = None, from_json: str = None, edit_mode: bool = None,
-                 validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = True):
+    def __init__(self, *, from_python: dict = None, from_json: str = None,
+                 validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = None):
         """
         Creates a CharVersionConfig object from either a python dict or from json.
         """
@@ -82,22 +78,20 @@ class CVConfig:
         self.managers = None
         if (from_python is None) == (from_json is None):
             raise ValueError("Exactly one of from_python= or from_json= must be given and not be None.")
-        if (from_json is None) != (edit_mode is None):
-            raise ValueError("You must provide edit_mode iff you use from_json")
         if from_json is not None:
             self._json_recipe = from_json
-            self._edit_mode = edit_mode
-
-            self.python_recipe = json.loads(self._json_recipe)
-            self.python_recipe['edit_mode'] = edit_mode
+            self._python_recipe = json.loads(self._json_recipe)
+            self._edit_mode = self.python_recipe['edit_mode']
         else:
-            self.python_recipe = from_python
+            self._python_recipe = from_python
             self._edit_mode = from_python['edit_mode']
             self._json_recipe = None
         if validate_syntax:
             self.validate_syntax(self.python_recipe)
         if setup_managers:
             self.setup_managers()
+        if validate_setup is None:
+            validate_setup = setup_managers
         if validate_setup:
             if not setup_managers:
                 raise ValueError("validate_setup=True requires setup_managers=True")
@@ -112,6 +106,10 @@ class CVConfig:
         if self._json_recipe is None:
             self._json_recipe = json.dumps(self.python_recipe)
         return self._json_recipe
+
+    @property
+    def python_recipe(self):
+        return self._python_recipe
 
     @property
     def edit_mode(self):

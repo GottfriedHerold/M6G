@@ -25,7 +25,7 @@ CHAR_DESCRIPTION_MAX_LENGTH = 240  # max length of char descriptions
 CV_DESCRIPTION_MAX_LENGTH = 240  # max length of char version descriptions
 MAX_INPUT_LENGTH = 200  # max length of (short) text field inputs
 KEY_MAX_LENGTH = 240  # max length of dict keys (for chars)
-CG_USERNAME_MAX_LENGTH = 40 # max length of usernames
+CG_USERNAME_MAX_LENGTH = 40  # max length of usernames
 
 
 # When setting a foreign key attribute in model A to model B, django automatically adds an a_set attribute to B.
@@ -307,7 +307,7 @@ class CharVersionModel(models.Model):
                                                              related_name='children', related_query_name='child')
     children: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse foreign key
     # JSON metadata to initialize the data sources
-    data_sources: str = models.TextField(blank=True)
+    json_config: str = models.TextField(blank=True)
     # Edit mode
     edit_mode: bool = models.BooleanField(default=False)
     # owning char
@@ -323,7 +323,7 @@ class CharVersionModel(models.Model):
 
     @classmethod
     def create_char_version(cls, *, version_name: str = None, description: str = None, edit_mode: bool = None,
-                            parent: 'Optional[CharVersionModel]' = None, data_sources=None, owner: CharModel = None):
+                            parent: 'Optional[CharVersionModel]' = None, json_config=None, owner: CharModel = None):
         """
         Creates a new char version. Parameters are taken from parent char version unless overridden by arguments
         to create_char_version. Note that both owner and parent need to be saved in the db.
@@ -339,8 +339,8 @@ class CharVersionModel(models.Model):
             new_version.pk = None
             if version_name is not None:  # but may be ""
                 new_version.version_name = version_name
-            if data_sources is not None:  # but may be ""
-                new_version.data_sources = data_sources
+            if json_config is not None:  # but may be ""
+                new_version.json_config = json_config
             if edit_mode is not None:  # but may be False
                 new_version.edit_mode = edit_mode
             if description is not None:  # but may be ""
@@ -367,12 +367,12 @@ class CharVersionModel(models.Model):
             if not owner:
                 raise ValueError("Either parent or owner must be provided to create a char version")
             version_name = version_name or ""
-            data_sources = data_sources or ""
+            json_config = json_config or ""
             description = description or ""
             if edit_mode:
                 raise ValueError("Editing only allowed based on an existing char")
 
-            new_version: CharVersionModel = CharVersionModel(version_name=version_name, data_sources=data_sources,
+            new_version: CharVersionModel = CharVersionModel(version_name=version_name, json_config=json_config,
                                                              char_version_number=owner.max_version, last_changed=datetime.now(timezone.utc),
                                                              description=description, edit_counter=1, parent=None,
                                                              edit_mode=False, owner=owner)

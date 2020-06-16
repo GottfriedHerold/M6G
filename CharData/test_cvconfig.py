@@ -58,7 +58,7 @@ def test_cv_config():
     cvc1 = CVConfig(from_python=recipe1, setup_managers=False, validate_setup=False)
     js = cvc1.json_recipe
     assert js
-    cvc2 = CVConfig(from_json=js, edit_mode=True, setup_managers=False, validate_setup=False)
+    cvc2 = CVConfig(from_json=js, setup_managers=False, validate_setup=False)
     assert cvc2.python_recipe == recipe1
     assert TestCVManager.log == []
     cvc = CVConfig(from_python=recipe1)
