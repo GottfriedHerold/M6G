@@ -15,7 +15,7 @@ class DBCharVersion(BaseCharVersion):
         # Intended usage is "with self.delayed_metadata_saving(): ..."
     _needs_saving: bool  # Records whether we need to save metadata back to db upon clearing delay_saving
 
-    def __init__(self, *, pk=None, db_instance=None, **kwargs):
+    def __init__(self, *, pk=None, db_instance: models.CharVersionModel = None, **kwargs):
         """
         Initializes a DBCharversion object that is associated with a given CharVersionModel instance.
         Note that the instance typically already exist in the database.
@@ -37,9 +37,11 @@ class DBCharVersion(BaseCharVersion):
         self._delay_saving = False
         self._needs_saving = False
         with self.delayed_metadata_saving():
-            conf: CVConfig = CVConfig(from_json=self._db_instance.json_config, setup_managers=False)
-            super().__init__(config=conf)
+            super().__init__(json_config=self._db_instance.json_config, **kwargs)
 
+    @property
+    def db_instance(self) -> models.CharVersionModel:
+        return self._db_instance
 
     def save(self) -> None:
         if not self._delay_saving:
@@ -68,7 +70,7 @@ class DBCharVersion(BaseCharVersion):
 
     class _Meta:
         @staticmethod
-        def bind_to_db(name, setter=True):  # Used to bind attribute names of DBCharVersion to attributes of models.CharVersionModel via DBCharVersion._db_instance
+        def bind_to_db(name: str, create_setter: bool = True) -> property:  # Used to bind attribute names of DBCharVersion to attributes of models.CharVersionModel via DBCharVersion._db_instance
             assert hasattr(models.CharVersionModel, name)
 
             def getter(s: 'DBCharVersion'):
@@ -78,7 +80,7 @@ class DBCharVersion(BaseCharVersion):
             def deleter(s: 'DBCharVersion'):
                 raise ValueError("Cannot delete attribute bound to db")
 
-            if setter:
+            if create_setter:
                 def setter(s: 'DBCharVersion', /, value):
                     setattr(s._db_instance, name, value)
                     if s.delay_saving:

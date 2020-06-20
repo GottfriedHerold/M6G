@@ -1,12 +1,17 @@
 import json
+import typing
 from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Any, Optional, List, Iterable
 from collections import deque
 from functools import wraps
 if TYPE_CHECKING:
     from .BaseCharVersion import BaseCharVersion
     from .DataSources import CharDataSource
+    from DBInterface.models import CharVersionModel
+    from DBInterface.DBCharVersion import DBCharVersion
 import logging
+import warnings
 config_logger = logging.getLogger('chargen.CVConfig')
+from django.db import transaction
 
 
 class CVConfig:
@@ -39,7 +44,7 @@ class CVConfig:
         ... other Metadata (TODO)
         'edit_mode': True/False whether we are in edit mode
 
-        'sub-list-id, e.g. data_sources': [  # list
+        'sub-list-id': [  #  'sub-list-id' may be e.g. 'data_sources'. We now give a list of source-specifiers.
             { # each source-specifier is a dict
                 'type' : "some_string",  # type-identifier, see below
                 'args' : [some_JSON_able_list]   # args not present means empty list
@@ -61,19 +66,23 @@ class CVConfig:
     _python_recipe: dict
     _json_recipe: Optional[str]
     sub_recipes: ClassVar[list] = [  # name of recipe sub-lists that may appear
-        {'name': 'data_sources', 'args': [], 'kwargs': {'recipe_type': 'data_source'}},
+        {'name': 'data_sources', 'args': [], 'kwargs': {} },
     ]
     _edit_mode: bool
     managers: Optional[List['BaseCVManager']]
-    char_version: Optional['BaseCharVersion']  # weak-ref?
+    _char_version: Optional['BaseCharVersion']  # weak-ref?
+    _db_char_version: Optional['CharVersionModel']  # weak-ref?
     post_process: deque
 
     def __init__(self, *, from_python: dict = None, from_json: str = None,
-                 validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = None):
+                 validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = None,
+                 char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None):
         """
         Creates a CharVersionConfig object from either a python dict or from json.
         """
-        self.char_version = None
+        self._db_char_version = db_char_version
+        self.char_version = char_version  # This will overwrite self._db_char_version if char_version is of an appropriate type
+
         self.post_process = deque()
         self.managers = None
         if (from_python is None) == (from_json is None):
@@ -102,17 +111,35 @@ class CVConfig:
                 raise
 
     @property
-    def json_recipe(self):
+    def char_version(self) -> 'BaseCharVersion':
+        if self._char_version is None:
+            raise ValueError("No CharVersion associated to this config")
+        return self._char_version
+
+    @char_version.setter
+    def char_version(self, /, new_value: 'BaseCharVersion'):
+        self._char_version = new_value
+        if hasattr(new_value, 'db_instance'):
+            self._db_char_version = typing.cast('DBCharVersion', new_value).db_instance
+
+    @property
+    def db_char_version(self) -> 'CharVersionModel':
+        if self._db_char_version is None:
+            raise ValueError("No db entry associated to this config.")
+        return self._db_char_version
+
+    @property
+    def json_recipe(self) -> str:
         if self._json_recipe is None:
             self._json_recipe = json.dumps(self.python_recipe)
         return self._json_recipe
 
     @property
-    def python_recipe(self):
+    def python_recipe(self) -> dict:
         return self._python_recipe
 
     @property
-    def edit_mode(self):
+    def edit_mode(self) -> bool:
         return self._edit_mode
 
     @classmethod
@@ -203,9 +230,9 @@ class CVConfig:
         validate_sub_JSON = staticmethod(validate_sub_JSON())
 
     @classmethod
-    def validate_syntax(cls, py: dict) -> None:
+    def validate_syntax(cls, /, py: dict) -> None:
         """
-        (Type-)Checks whether the python recipe has the correct form.
+        (Type-)Checks whether the python recipe has the correct form. Indicates failure by raising an exception.
         """
         cls.validate_sub_JSON(py)
         if type(py) is not dict:
@@ -242,8 +269,11 @@ class CVConfig:
             for ingredient in sub_recipe_list:
                 args: list = list(default_args)
                 args += ingredient.get('args', [])
-                kwargs: dict = dict(default_kwargs)  # must not and does not contain 'cv_config'
+                kwargs: dict = dict(default_kwargs)  # must not and does not contain 'cv_config' / 'recipe' / 'recipe_type'
+                # Note that we do not have to validate this, as it would just be ignored.
                 kwargs['cv_config'] = self
+                kwargs['recipe'] = ingredient
+                kwargs['recipe_type'] = sub_recipe_spec['name']
                 kwargs.update(ingredient.get('kwargs', {}))
                 self.managers.append(cls.known_types[ingredient['type']](*args, **kwargs))
         self.post_setup()
@@ -278,16 +308,44 @@ class CVConfig:
         self.run_on_managers('validate_config')
         return
 
+    @_Functors.add_post_processing
+    def copy_config(self, *, target_db: 'CharVersionModel', new_edit_mode: Optional[bool], transplant: bool) -> 'CVConfig':
+        """
+        Creates a new CVConfig from the current one. target_db is the new CharVersionModel this is associated to. Note
+        that target_db may or may not be already present in the db and its pk may be None. new_edit_mode is whether we
+        set edit mode for the new char. Transplant indicates whether the new CVConfig is for a different CharModel than
+        the source.
+        """
+        if transaction.get_autocommit():
+            raise warnings.warn("copy_config should be wrapped in a transaction.", RuntimeWarning)
+        new_py_recipe = {'edit_mode': new_edit_mode}
+        self.run_on_managers('copy_config', new_py_recipe, new_edit_mode=new_edit_mode, transplant=transplant)
+        new_config = CVConfig(from_python=new_py_recipe, validate_syntax=True, validate_setup=True, setup_managers=True)
+        return new_config
+
+
+EMPTY_RECIPE = {
+    'edit_mode': False
+}
+
+
 class BaseCVManager:
     """
     Manager that does nothing. For testing and serves as base class. Not registered.
     """
 
-    def __init__(self, cv_config: CVConfig, *args, recipe_type, **kwargs):
+    def __init__(self, cv_config: CVConfig, recipe: dict, recipe_type: str, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
         self.cv_config = cv_config
+        self.instructions = recipe
         self.recipe_type = recipe_type
+
+    def copy_config(self, target_recipe: dict, /, *, new_edit_mode: bool, transplant: bool) -> None:
+        if self.recipe_type not in target_recipe:
+            target_recipe[self.recipe_type] = list()
+        new_recipe = dict(self.instructions)
+        target_recipe[self.recipe_type].append(new_recipe)
 
     def post_setup(self):
         pass

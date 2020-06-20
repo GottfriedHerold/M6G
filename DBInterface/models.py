@@ -10,6 +10,7 @@ from django.db import transaction, IntegrityError
 from django.core.exceptions import ObjectDoesNotExist
 from typing import Optional, TypeVar, Generic, Iterator, Iterable, Union
 from datetime import datetime, timezone
+from CharData.CharVersionConfig import CVConfig
 
 # Only used for static type checking and to ensure my IDE's autocompletion works.
 # MANAGER_TYPE[ModelClass] is the type of ModelClass.objects.all() / ModelClass.objects
@@ -216,8 +217,8 @@ class CharModel(models.Model):
     # The difference between last_change and last_save is that edits in chars opened for editing get changed immediately
     # upon user input (via Javascript), whereas last_save involves actually manually saving (which is implemented as an
     # change in CharVersionsModels rather than a change in DictEntries)
-    last_save: datetime = models.DateTimeField()  # time of last change of char.
-    last_change: datetime = models.DateTimeField()  # time of last SAVE of char. CharVersions should change that upon change.
+    last_save: datetime = models.DateTimeField()  # time of last save of char. (corresponds to a change wrt existence of CharVersion models)
+    last_change: datetime = models.DateTimeField()  # time of last change of char. CharVersions should change that upon change.
     creator: Optional[CGUser] = models.ForeignKey(CGUser, on_delete=models.SET_NULL, null=True, related_name='created_chars')
     user_level_permissions = models.ManyToManyField(CGUser, through='UserPermissionsForChar', related_name='directly_allowed_chars')
     group_level_permissions = models.ManyToManyField(CGGroup, through='GroupPermissionsForChar', related_name='allowed_chars')
@@ -308,7 +309,7 @@ class CharVersionModel(models.Model):
     children: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse foreign key
     # JSON metadata to initialize the data sources
     json_config: str = models.TextField(blank=True)
-    # Edit mode
+    # Edit mode. This is actually determined by json_config.
     edit_mode: bool = models.BooleanField(default=False)
     # owning char
     owner: CharModel = models.ForeignKey(CharModel, on_delete=models.CASCADE, related_name='versions', related_query_name='char_version')
@@ -323,7 +324,7 @@ class CharVersionModel(models.Model):
 
     @classmethod
     def create_char_version(cls, *, version_name: str = None, description: str = None, edit_mode: bool = None,
-                            parent: 'Optional[CharVersionModel]' = None, json_config=None, owner: CharModel = None):
+                            parent: 'Optional[CharVersionModel]' = None, json_config=None, python_config=None, owner: CharModel = None):
         """
         Creates a new char version. Parameters are taken from parent char version unless overridden by arguments
         to create_char_version. Note that both owner and parent need to be saved in the db.
@@ -332,55 +333,94 @@ class CharVersionModel(models.Model):
         a new root char version for owner.
         Note that this function may change owner / parent.owner to set metadata.
         """
-        changed_owner = False
+
+        char_logger.info("Trying to create new char version.")
+
+        if json_config or python_config:
+            if python_config and json_config:  # would be caught by CVConfig as well
+                raise ValueError("Do not provide both json_config and python_config")
+            new_config: CVConfig = CVConfig(from_json=json_config, from_python=python_config,
+                                            validate_syntax=True, validate_setup=True, setup_managers=True)  # TODO: Creation may need different interface
+            if (edit_mode is not None) and (edit_mode != new_config.edit_mode):
+                raise ValueError("Do not provide both edit_mode and an explicit new config")
+            edit_mode = new_config.edit_mode  # to make some verifications work below
+        else:
+            if not parent:
+                raise ValueError("Need to provide config or parent to take config from")
+            new_config = None
+            # new_config and edit_mode will be set below, need new_version first in this case.
+
+        owner_needs_saving = False
         if parent:
             assert isinstance(parent, cls)
+            if edit_mode and parent.edit_mode:
+                raise ValueError("Can not create an edit char version from an edit char version")
             new_version: CharVersionModel = cls.objects.get(pk=parent.pk)
-            new_version.pk = None
+            new_version.pk = None  # Once saved, this gets a fresh pk.
+
             if version_name is not None:  # but may be ""
                 new_version.version_name = version_name
-            if json_config is not None:  # but may be ""
-                new_version.json_config = json_config
-            if edit_mode is not None:  # but may be False
-                new_version.edit_mode = edit_mode
             if description is not None:  # but may be ""
                 new_version.description = description
-            if new_version.edit_mode and parent.edit_mode:
-                raise ValueError("Can not create an edit char version from an edit char version")
-            new_version.edit_counter += 1
-            new_version.last_changed = datetime.now(timezone.utc)
-            if owner and new_version.owner != owner:  # new char from previous version
-                if new_version.edit_mode or parent.edit_mode:
+            transplant: bool = (owner and owner!=parent.owner)  # copy charversion to new owner.
+            if transplant:
+                if edit_mode or parent.edit_mode:
                     raise ValueError("Creating an initial char version for a new char from an old char version not possible in edit mode")
                 new_version.parent = None
                 new_version.owner = owner
                 new_version.char_version_number = owner.max_version
                 owner.max_version += 1  # not yet saved to db.
-                changed_owner = True
-            else:  # previous owner (the common case)
+                owner_needs_saving = True  # indicates we need to save owner, to save max_version
+            else:  # not transplant, usual case
                 new_version.parent = parent
-                if not new_version.edit_mode:
-                    new_version.char_version_number = owner.max_version
+                assert new_version.owner == parent.owner
+                if not edit_mode:  # None or False
+                    new_version.char_version_number = new_version.owner.max_version
                     new_version.owner.max_version += 1
-                    changed_owner = True
+                    owner_needs_saving = True
+            edit_mode = bool(edit_mode)
+            if not new_config:
+                new_version.json_config = ""
+                parent_config: CVConfig = CVConfig(from_json=parent.json_config, validate_syntax=True, validate_setup=True, db_char_version=parent)
+                with transaction.atomic():
+                    new_version.save()  # will be overwritten later
+                    new_config: CVConfig = parent_config.copy_config(target_db=new_version, new_edit_mode=edit_mode, transplant=transplant)
+                    # we we do everything inside this single transaction.
+                    new_version.json_config = new_config.json_recipe
+                    new_version.edit_mode = new_config.edit_mode
+                    new_version.edit_counter += 1
+                    new_version.last_changed = datetime.now(timezone.utc)
+                    new_version.save()
+                    if owner_needs_saving:
+                        new_version.owner.save()
+                return new_version
+            new_version.json_config = new_config.json_recipe
+            new_version.edit_mode = new_config.edit_mode
+
+            new_version.edit_counter += 1
+            new_version.last_changed = datetime.now(timezone.utc)
+
         else:  # No parent, so we create a brand new char version for the char given by owner
+            # We are guaranteed that new_config is set and edit_mode == new_config.edit_mode
+            assert new_config
+            assert edit_mode == new_config.edit_mode
+            if edit_mode:
+                raise ValueError("Editing only allowed based on an existing char")
+            assert edit_mode is False  # and not None
             if not owner:
                 raise ValueError("Either parent or owner must be provided to create a char version")
             version_name = version_name or ""
-            json_config = json_config or ""
             description = description or ""
-            if edit_mode:
-                raise ValueError("Editing only allowed based on an existing char")
 
-            new_version: CharVersionModel = CharVersionModel(version_name=version_name, json_config=json_config,
+            new_version: CharVersionModel = CharVersionModel(version_name=version_name, json_config=new_config.json_recipe,
                                                              char_version_number=owner.max_version, last_changed=datetime.now(timezone.utc),
                                                              description=description, edit_counter=1, parent=None,
                                                              edit_mode=False, owner=owner)
             new_version.owner.max_version += 1
-            changed_owner = True
+            owner_needs_saving = True
         with transaction.atomic():
             new_version.save()
-            if changed_owner:
+            if owner_needs_saving:
                 new_version.owner.save()
         return new_version
 

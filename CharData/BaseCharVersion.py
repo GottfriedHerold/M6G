@@ -89,9 +89,9 @@ class BaseCharVersion:
 
     _config: Optional[CharVersionConfig.CVConfig]
 
-    def __init__(self, *, data_sources: List[CharDataSource] = None, config: CharVersionConfig.CVConfig = None, **kwargs):
+    def __init__(self, *, data_sources: List[CharDataSource] = None, config: CharVersionConfig.CVConfig = None, py_config: dict = None, json_config: str = None, **kwargs):
         """
-        Creates a BaseCharConfig. You should set either initial_list or config to initialize its lists (if config is set,
+        Creates a BaseCharConfig. You should set either initial_list or config/py_config/json_config to initialize its lists (if config is set,
         it will use config to set up the lists). Note that config is the preferred way; the data_sources interface exists
         mostly for debugging and testing purposes, may not be present in subclasses, and may be removed altogether.
 
@@ -104,18 +104,21 @@ class BaseCharVersion:
         # (This should not really matter much for config.setup_managers, but we need to give config.make_data_source()
         # the option to inspect and modify the CharVersion object. In particular, data sources that refer to the DB
         # may need to to obtain the primary key of the CharVersion object.)
-        self._config = config
-        if config is not None:
-            if data_sources:
-                raise ValueError("Do not provide both initial lists and config")
-            config.char_version = self  # consider turning into a weak-ref
-            config.setup_managers()
-            self._data_sources = config.make_data_sources()
-
-        elif data_sources is None:
-            self._data_sources = []
+        if (data_sources is None) + (config is None) + (py_config is None) + (json_config is None) != 3:
+            raise ValueError("Need to provide exactly one of data_sources or some form of config")
+        if data_sources is None:
+            if py_config is not None:
+                self._config = CharVersionConfig.CVConfig(py_config=py_config, char_version=self, validate_setup=False)
+            elif json_config is not None:
+                self._config = CharVersionConfig.CVConfig(json_config=json_config, char_version=self, validate_setup=False)
+            else:
+                config.char_version = self
+                self._config = config
+                self._config.setup_managers()
+            self._data_sources = self._config.make_data_sources()
         else:
             self._data_sources = data_sources
+            self._config = None
 
         # Internally used to speed up lookups:
         self._unrestricted_lists = []  # indices of data sources that contain unrestricted keys in lookup order

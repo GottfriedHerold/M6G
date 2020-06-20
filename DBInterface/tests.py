@@ -1,5 +1,6 @@
 from django.test import TestCase
 from .models import CGUser, CGGroup, CharVersionModel, CharModel, UserPermissionsForChar, GroupPermissionsForChar, get_default_group, CharUsers
+from CharData import CharVersionConfig
 
 # TODO: May need to modify loggers.
 
@@ -13,10 +14,10 @@ class UserAndCharManagement(TestCase):
         self.user3 = CGUser.objects.create_user(username='user3', email='user2@users.org', password='U2')
         self.user_group = CGGroup.create_group('test_users', initial_users=[self.user1, self.user2, self.user3])
         self.char1 = CharModel.create_char(name='TestChar1', creator=self.admin)
-        self.char1_1 = self.char1.create_char_version()
+        self.char1_1 = self.char1.create_char_version(python_config=CharVersionConfig.EMPTY_RECIPE)
         self.char1_2 = self.char1.create_char_version(parent=self.char1_1, version_name='second version')
         self.char2 = CharModel.create_char(name='TestChar2', creator=self.user1)
-        self.char2_1 = CharVersionModel.create_char_version(owner=self.char2, description='Second char, initial version')
+        self.char2_1 = CharVersionModel.create_char_version(owner=self.char2, description='Second char, initial version', python_config=CharVersionConfig.EMPTY_RECIPE)
         self.char3 = CharModel.create_char(name='TestChar3', creator=self.user1)
         self.char3_1 = self.char3.create_char_version(parent=self.char1_2)
 
