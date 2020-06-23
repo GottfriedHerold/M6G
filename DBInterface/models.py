@@ -316,6 +316,17 @@ class CharVersionModel(models.Model):
 
     objects: 'MANAGER_TYPE[CharVersionModel]'
 
+    @classmethod
+    def make_dummy(cls, pk: int):
+        """
+        Creates a "dummy object with a given primary key". This is not in the db.
+        This is not a valid CharVersion object, but it can be used in foreign-key queries.
+        This is only used as a workaround to limitations of Django.
+        """
+        ret = cls(pk=pk)
+        ret.is_dummy = True
+        return ret
+
     def __str__(self) -> str:
         if self.edit_mode:
             return self.name + " V" + str(self.char_version_number) + "+"
@@ -339,8 +350,9 @@ class CharVersionModel(models.Model):
         if json_config or python_config:
             if python_config and json_config:  # would be caught by CVConfig as well
                 raise ValueError("Do not provide both json_config and python_config")
+            # TODO: Creation may need different interface. Call creation hook.
             new_config: CVConfig = CVConfig(from_json=json_config, from_python=python_config,
-                                            validate_syntax=True, validate_setup=True, setup_managers=True)  # TODO: Creation may need different interface
+                                            validate_syntax=True, validate_setup=True, setup_managers=True)
             if (edit_mode is not None) and (edit_mode != new_config.edit_mode):
                 raise ValueError("Do not provide both edit_mode and an explicit new config")
             edit_mode = new_config.edit_mode  # to make some verifications work below
@@ -656,6 +668,19 @@ class DictEntry(models.Model):
     value: str
 
     objects: 'MANAGER_TYPE[DictEntry]'
+
+    @classmethod
+    def copy_between_charversions(cls, *, source: CharVersionModel, target: CharVersionModel):
+        """
+        Copies entries from source char version to target charversion. target charversion must not have any entries.
+        """
+        if cls.objects.filter(char_version=target).exists():
+            raise ValueError("Target charversion dict is not empty")
+        old = cls.objects.filter(char_version=source)
+        for entry in old:
+            entry.pk = None
+            entry.char_version = target
+        cls.objects.bulk_create(old)
 
 class ShortDictEntry(DictEntry):
     # Blank=True is validation-related. While entering blank values is allowed (it deletes the entry), this needs to

@@ -1,6 +1,8 @@
 from django.test import TestCase
 from .models import CGUser, CGGroup, CharVersionModel, CharModel, UserPermissionsForChar, GroupPermissionsForChar, get_default_group, CharUsers
 from CharData import CharVersionConfig
+from DBInterface.DBCharVersion import SimpleDBToDict, DBCharVersion
+from . import models
 
 # TODO: May need to modify loggers.
 
@@ -23,10 +25,12 @@ class UserAndCharManagement(TestCase):
 
     def test_setup(self):
         user1 = CGUser.objects.get(username='user1')
+        self.assertEqual(user1, self.user1)
         user2 = CGUser.objects.get(username='user2')
         user3 = CGUser.objects.get(username='user3')
         all_group = get_default_group()
         user_group = CGGroup.objects.get(name='test_users')
+        self.assertEqual(user_group, self.user_group)
         char1 = CharModel.objects.get(name='TestChar1')
         char2 = CharModel.objects.get(name='TestChar2')
         char3 = CharModel.objects.get(name='TestChar3')
@@ -37,3 +41,34 @@ class UserAndCharManagement(TestCase):
 
         group2 = CGGroup.create_group('group2', initial_users=[self.user1, self.user2])
 
+    # TODO: Test permissions management
+
+    def test_DBCharVersion(self):
+        pass
+
+class DBToDictWrapper(TestCase):
+    def setUp(self):
+        self.user1 = CGUser.objects.create_user(username='user1', email='user1@users.org', password='U1')
+        self.char1 = CharModel.create_char(name='TestChar1', creator=self.user1)
+        self.char1_1 = self.char1.create_char_version(python_config=CharVersionConfig.EMPTY_RECIPE)
+        self.char1_2 = self.char1.create_char_version(parent=self.char1_1)
+
+    def test_DBDictWrapper(self):
+        dict_like1 = SimpleDBToDict(manager=models.ShortDictEntry.objects, char_version_model_pk=self.char1_1.pk)
+        dict_like2 = SimpleDBToDict(manager=models.ShortDictEntry.objects, char_version_model_pk=self.char1_2.pk)
+        dict_like_long = SimpleDBToDict(manager=models.LongDictEntry.objects, char_version_model_pk=self.char1_1.pk)
+
+        models.ShortDictEntry.objects.create(char_version=self.char1_2, key='x', value='y')
+        self.assertEqual(len(dict_like1), 0)
+        dict_like1['abc'] = '1'
+        dict_like1['cde'] = '5'
+        self.assertEqual(len(dict_like1), 2)
+        del dict_like1['cde']
+        self.assertTrue('abc' in dict_like1)
+        self.assertFalse('cde' in dict_like1)
+        dict_like1['abc'] = '6'
+        self.assertEqual(len(dict_like1), 1)
+        self.assertEqual(dict_like1['abc'], '6')
+        dict_like2['xx'] = 'yy'
+        d = dict(dict_like2.items())
+        self.assertEqual(d, {'xx': 'yy', 'x': 'y'})

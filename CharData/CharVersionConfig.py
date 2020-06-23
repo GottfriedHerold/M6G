@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from .BaseCharVersion import BaseCharVersion
     from .DataSources import CharDataSource
     from DBInterface.models import CharVersionModel
-    from DBInterface.DBCharVersion import DBCharVersion
+    # from DBInterface.DBCharVersion import DBCharVersion
 import logging
 import warnings
 config_logger = logging.getLogger('chargen.CVConfig')
@@ -66,7 +66,8 @@ class CVConfig:
     _python_recipe: dict
     _json_recipe: Optional[str]
     sub_recipes: ClassVar[list] = [  # name of recipe sub-lists that may appear
-        {'name': 'data_sources', 'args': [], 'kwargs': {} },
+        {'name': 'data_sources', 'args': [], 'kwargs': {}},
+        {'name': 'defaults', 'args': [], 'kwargs': {}},
     ]
     _edit_mode: bool
     managers: Optional[List['BaseCVManager']]
@@ -161,6 +162,7 @@ class CVConfig:
                     config_logger.critical("Trying to re-register CVManager %s with new creator, failing." % type_id)
                     raise ValueError("Type identifier %s is already registered with a different creator" % type_id)
         cls.known_types[type_id] = creator
+        config_logger.info("Registered CV %s" % type_id)
 
     class _Functors:
         """
@@ -311,15 +313,16 @@ class CVConfig:
     @_Functors.add_post_processing
     def copy_config(self, *, target_db: 'CharVersionModel', new_edit_mode: Optional[bool], transplant: bool) -> 'CVConfig':
         """
-        Creates a new CVConfig from the current one. target_db is the new CharVersionModel this is associated to. Note
-        that target_db may or may not be already present in the db and its pk may be None. new_edit_mode is whether we
-        set edit mode for the new char. Transplant indicates whether the new CVConfig is for a different CharModel than
-        the source.
+        Creates a new CVConfig from the current one. target_db is the new CharVersionModel this is associated to.
+        Note that target_db must already be present in the db: copy_config should always be run in a transaction anyway,
+        and the caller should just save target_db prior to calling copy_config.
+        new_edit_mode is whether we set edit mode for the new char.
+        Transplant indicates whether the new CVConfig is for a different CharModel than the source.
         """
         if transaction.get_autocommit():
             raise warnings.warn("copy_config should be wrapped in a transaction.", RuntimeWarning)
         new_py_recipe = {'edit_mode': new_edit_mode}
-        self.run_on_managers('copy_config', new_py_recipe, new_edit_mode=new_edit_mode, transplant=transplant)
+        self.run_on_managers('copy_config', new_py_recipe, new_edit_mode=new_edit_mode, transplant=transplant, target_db=target_db)
         new_config = CVConfig(from_python=new_py_recipe, validate_syntax=True, validate_setup=True, setup_managers=True)
         return new_config
 
@@ -341,7 +344,7 @@ class BaseCVManager:
         self.instructions = recipe
         self.recipe_type = recipe_type
 
-    def copy_config(self, target_recipe: dict, /, *, new_edit_mode: bool, transplant: bool) -> None:
+    def copy_config(self, target_recipe: dict, /, *, new_edit_mode: bool, transplant: bool, target_db: 'CharVersionModel') -> None:
         if self.recipe_type not in target_recipe:
             target_recipe[self.recipe_type] = list()
         new_recipe = dict(self.instructions)
@@ -358,3 +361,6 @@ class BaseCVManager:
 
     def validate_config(self):
         pass
+
+
+CVConfig.register('base', BaseCVManager)

@@ -108,9 +108,9 @@ class BaseCharVersion:
             raise ValueError("Need to provide exactly one of data_sources or some form of config")
         if data_sources is None:
             if py_config is not None:
-                self._config = CharVersionConfig.CVConfig(py_config=py_config, char_version=self, validate_setup=False)
+                self._config = CharVersionConfig.CVConfig(from_python=py_config, char_version=self, validate_setup=False)
             elif json_config is not None:
-                self._config = CharVersionConfig.CVConfig(json_config=json_config, char_version=self, validate_setup=False)
+                self._config = CharVersionConfig.CVConfig(from_json=json_config, char_version=self, validate_setup=False)
             else:
                 config.char_version = self
                 self._config = config

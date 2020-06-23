@@ -1,5 +1,5 @@
 from typing import Union, Mapping, MutableMapping, Any, Iterable, Dict, Optional, ClassVar
-from . CharVersionConfig import CVConfig
+from . CharVersionConfig import BaseCVManager, CVConfig
 
 from CharData import Parser, Regexps
 import logging
@@ -180,10 +180,10 @@ class CharDataSource:
     def __str__(self) -> str:
         return "Data source of type " + self.dict_type + ": " + self.description
 
-    def __new__(cls):
-        if not (cls.stores_parsed_data or cls.stores_input_data):
-            raise ValueError("This DataSource can not store any data")
-        return super().__new__(cls)
+    # def __new__(cls):
+    #    if not (cls.stores_parsed_data or cls.stores_input_data):
+    #        raise ValueError("This DataSource can not store any data")
+    #    return super().__new__(cls)
 
 
 class CharDataSourceDict(CharDataSource):

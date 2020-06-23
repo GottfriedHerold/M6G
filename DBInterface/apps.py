@@ -14,3 +14,5 @@ class DBInterfaceConfig(AppConfig):
             logger.info('DBInterface is ready')
             # noinspection PyUnresolvedReferences
             from . import signals  # This has side-effects!
+            # noinspection PyUnresolvedReferences
+            from . import DBDataSources  # This has side-effects
