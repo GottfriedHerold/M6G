@@ -180,7 +180,7 @@ class CGGroup(models.Model):
         return self.name
 
     @classmethod
-    def create_group(cls, name, *, initial_users: Iterable[CGUser]):
+    def create_group(cls, name, *, initial_users: Iterable[CGUser]) -> 'CGGroup':
         with transaction.atomic():
             try:
                 new_group: CGGroup = cls.objects.create(name=name)
@@ -317,11 +317,13 @@ class CharVersionModel(models.Model):
     objects: 'MANAGER_TYPE[CharVersionModel]'
 
     @classmethod
-    def make_dummy(cls, pk: int):
+    def make_dummy(cls, pk: int) -> 'CharVersionModel':
         """
-        Creates a "dummy object with a given primary key". This is not in the db.
-        This is not a valid CharVersion object, but it can be used in foreign-key queries.
-        This is only used as a workaround to limitations of Django.
+        Creates a "dummy object with a given primary key". This key is not necessarily present in the db and at any rate
+        should not be saved.
+
+        While this is not a valid CharVersion object, it can be used in foreign-key queries.
+        This is really only used as a workaround to limitations of Django.
         """
         ret = cls(pk=pk)
         ret.is_dummy = True
@@ -335,7 +337,7 @@ class CharVersionModel(models.Model):
 
     @classmethod
     def create_char_version(cls, *, version_name: str = None, description: str = None, edit_mode: bool = None,
-                            parent: 'Optional[CharVersionModel]' = None, json_config=None, python_config=None, owner: CharModel = None):
+                            parent: 'Optional[CharVersionModel]' = None, json_config: str = None, python_config: dict = None, owner: CharModel = None):
         """
         Creates a new char version. Parameters are taken from parent char version unless overridden by arguments
         to create_char_version. Note that both owner and parent need to be saved in the db.

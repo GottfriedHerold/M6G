@@ -18,7 +18,9 @@ class CVManagerTest(TestCase):
     target_type = None
 
     @classmethod
-    def make_default_config(cls, target_sub_recipe: str = None, new_entry: dict = {}) -> dict:
+    def make_default_config(cls, target_sub_recipe: str = None, new_entry: dict = None) -> dict:
+        if new_entry is None:
+            new_entry = {}
         new_recipe: dict = deepcopy(cls.base_config)
         if target_sub_recipe:
             new_recipe[target_sub_recipe].append(new_entry)
@@ -49,5 +51,3 @@ class CVManagerTest(TestCase):
         cv1.set_input(key='b.c', value='6', target_type=self.target_type)
         self.assertEqual(cv2.get('a.b'), 20)
         self.assertEqual(cv1.get('a.b'), 7)
-
-
