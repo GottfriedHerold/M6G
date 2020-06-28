@@ -10,8 +10,10 @@ if TYPE_CHECKING:
     # from DBInterface.DBCharVersion import DBCharVersion
 import logging
 import warnings
-config_logger = logging.getLogger('chargen.CVConfig')
 from django.db import transaction
+from .EditModes import EditModes
+
+config_logger = logging.getLogger('chargen.CVConfig')
 
 
 class CVConfig:
@@ -21,8 +23,7 @@ class CVConfig:
     input pages / which LaTeX templates to use.
 
     It is determined by a JSON-string or equivalently its transformation into a python dict (called a recipe)
-    adhering to a certain format. Some metadata is also exposed directly from the dict (edit_mode) for a more
-    convenient interface.
+    adhering to a certain format.
 
     Essentially, a recipe is a list of entries that contain 'type', 'args', 'kwargs', where type denotes an
     appropriate callable that is called with args and kwargs to construct the actual object (called a CVManager)
@@ -30,6 +31,11 @@ class CVConfig:
     easier to serialize / make an UI for / update between versions of CharsheetGen). To make this work,
     CVConfig maintains a translation type->callable as a class variable that is filled by registering CVManager classes.
 
+    Furthermore, the JSON objects contains some other metadata apart from managers, notably:
+    Ordering of data source and LaTeX output (TODO)
+    Edit mode
+
+    TODO: More precise description
     Every CVManager provides a set of hooks that are called at the appropriate time. E.g. when creating the list of
     data source, we call manager.create_list(...) for every manager in the list of CVManagers in turn to create the data
     sources. CVConfig also acts as an interface for this list of managers.
@@ -40,6 +46,7 @@ class CVConfig:
 
     The python representation of a recipe looks as follows:
 
+    TODO: Redo
     recipe = {
         ... other Metadata (TODO)
         'edit_mode': True/False whether we are in edit mode
@@ -69,47 +76,57 @@ class CVConfig:
         {'name': 'data_sources', 'args': [], 'kwargs': {}},
         {'name': 'defaults', 'args': [], 'kwargs': {}},
     ]
-    _edit_mode: bool
+    _edit_mode: EditModes  # enum type
     managers: Optional[List['BaseCVManager']]
     _char_version: Optional['BaseCharVersion']  # weak-ref?
     _db_char_version: Optional['CharVersionModel']  # weak-ref?
     post_process: deque
 
     def __init__(self, *, from_python: dict = None, from_json: str = None,
-                 validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = None,
+                 validate_syntax: bool = False, setup_managers: bool = True,
                  char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None):
         """
         Creates a CharVersionConfig object from either a python dict or from json.
         """
-        self._db_char_version = db_char_version
-        self.char_version = char_version  # This will overwrite self._db_char_version if char_version is of an appropriate type
-
-        self.post_process = deque()
-        self.managers = None
         if (from_python is None) == (from_json is None):
             raise ValueError("Exactly one of from_python= or from_json= must be given and not be None.")
         if from_json is not None:
             self._json_recipe = from_json
             self._python_recipe = json.loads(self._json_recipe)
-            self._edit_mode = self.python_recipe['edit_mode']
+            # Type-cast int -> IntEnum  (JSON stores EditMode as int)
+            self._edit_mode = self._python_recipe['edit_mode'] = EditModes(self.python_recipe['edit_mode'])
         else:
             self._python_recipe = from_python
             self._edit_mode = from_python['edit_mode']
-            self._json_recipe = None
+            self._json_recipe = None  # Created on demand
+
+        self.char_version = char_version
+        # self.char_version's property setter may set self._db_char_version if char_version is of an appropriate type.
+        # We check whether this matches db_char_version if provided
+
+        if db_from_char := getattr(self, '_db_char_version'):
+            if db_char_version is not None and db_char_version != db_from_char:
+                raise ValueError("both char_version and db_char_version provided with incompatible values.")
+        else:
+            self._db_char_version = db_char_version
+
+        # TODO: Do we want this?
+        self.post_process = deque()
+        self.managers = None
         if validate_syntax:
             self.validate_syntax(self.python_recipe)
         if setup_managers:
             self.setup_managers()
-        if validate_setup is None:
-            validate_setup = setup_managers
-        if validate_setup:
-            if not setup_managers:
-                raise ValueError("validate_setup=True requires setup_managers=True")
-            try:
-                self.validate_setup()
-            except ValueError:
-                config_logger.exception("Validation of CVConfig failed")
-                raise
+        # if validate_setup is None:
+        #    validate_setup = setup_managers
+        # if validate_setup:
+        #     if not setup_managers:
+        #         raise ValueError("validate_setup=True requires setup_managers=True")
+        #     try:
+        #         self.validate_setup()
+        #     except ValueError:
+        #        config_logger.exception("Validation of CVConfig failed")
+        #        raise
 
     @property
     def char_version(self) -> 'BaseCharVersion':
@@ -140,7 +157,7 @@ class CVConfig:
         return self._python_recipe
 
     @property
-    def edit_mode(self) -> bool:
+    def edit_mode(self) -> EditModes:
         return self._edit_mode
 
     @classmethod
@@ -157,30 +174,29 @@ class CVConfig:
             else:
                 if allow_overwrite:
                     config_logger.info("Re-registering CVManager %s with new creator, as requested" % type_id)
-                    return
                 else:
                     config_logger.critical("Trying to re-register CVManager %s with new creator, failing." % type_id)
                     raise ValueError("Type identifier %s is already registered with a different creator" % type_id)
         cls.known_types[type_id] = creator
         config_logger.info("Registered CV %s" % type_id)
 
-    class _Functors:
-        """
-        Subclass to avoid peculiarities of Python. (notably, the distinction function/static methods/method attributes,
-        which behave differently during class scope and if called from outside AFTER the class definition has finished.)
-        """
-        @staticmethod
-        def add_post_processing(method):  # decorator intended for methods of CVConfig
-            """
-            Calls all functions stored in the post_process queue after the method
-            """
-            @wraps(method)
-            def new_method(self: 'CVConfig', *args, **kwargs):
-                ret = method(self, *args, **kwargs)
-                while self.post_process:
-                    ret = self.post_process.popleft()(ret)
-                return ret
-            return new_method
+    # class _Functors:
+    #     """
+    #     Subclass to avoid peculiarities of Python. (notably, the distinction function/static methods/method attributes,
+    #     which behave differently during class scope and if called from outside AFTER the class definition has finished.)
+    #     """
+    #     @staticmethod
+    #     def add_post_processing(method):  # decorator intended for methods of CVConfig
+    #         """
+    #         Calls all functions stored in the post_process queue after the method
+    #         """
+    #         @wraps(method)
+    #         def new_method(self: 'CVConfig', *args, **kwargs):
+    #             ret = method(self, *args, **kwargs)
+    #             while self.post_process:
+    #                 ret = self.post_process.popleft()(ret)
+    #             return ret
+    #         return new_method
 
     # processors can call this to add functions to the queue. These are then called after every processor has run.
     def add_to_end_of_post_process_queue(self, fun: Callable[[Any], Any], /):
@@ -202,7 +218,7 @@ class CVConfig:
 
     if TYPE_CHECKING:
         @staticmethod
-        def validate_sub_JSON(arg: Any) -> None:  # For typecheckers that look at the first definition.
+        def validate_sub_JSON(arg: Any) -> None:  # For static type checkers that look at the first definition.
             """
             Checks whether arg is a python object that adheres to our JSON-serializability restrictions.
             (Note that we are stricter that JSON proper). In case of non-adherence, we raise a ValueError.
@@ -217,17 +233,18 @@ class CVConfig:
                 """
                 if (arg is None) or type(arg) in [int, bool, str]:
                     return
-                if type(arg) is list:  # No subtyping! Also, fail on tuples.
+                elif type(arg) is list:  # No sub-typing! Also, fail on tuples.
                     for item in arg:
                         real_validate_sub_JSON(item)
                     return
-                if type(arg) is dict:
+                elif type(arg) is dict:
                     for key, value in arg.items():
                         if type(key) is not str:
                             raise ValueError("Invalid CVConfig: non-string dict key")
                         real_validate_sub_JSON(value)
                     return
-                raise ValueError("Invalid CVConfig: Contains non-allowed python type")
+                else:
+                    raise ValueError("Invalid CVConfig: Contains non-allowed python type")
             return real_validate_sub_JSON
         validate_sub_JSON = staticmethod(validate_sub_JSON())
 
@@ -236,14 +253,18 @@ class CVConfig:
         """
         (Type-)Checks whether the python recipe has the correct form. Indicates failure by raising an exception.
         """
-        cls.validate_sub_JSON(py)
         if type(py) is not dict:
             raise ValueError("Invalid CVConfig: Not a dict")
         try:
-            if type(py['edit_mode']) is not bool:
+            if type(py['edit_mode']) is not EditModes:
                 raise ValueError("Invalid CVConfig: Invalid edit mode")
         except KeyError:
             raise ValueError("Invalid CVConfig: edit_mode not set")
+        try:
+            py['edit_mode'] = int(py['edit_mode'])
+            cls.validate_sub_JSON(py)
+        finally:
+            py['edit_mode'] = EditModes(py['edit_mode'])
         for sub_recipe_spec in cls.sub_recipes:
             sub_recipe_list = py.get(sub_recipe_spec['name'], [])
             if type(sub_recipe_list) is not list:

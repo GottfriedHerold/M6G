@@ -93,7 +93,7 @@ class BaseCharVersion:
         """
         Creates a BaseCharConfig. You should set either initial_list or config/py_config/json_config to initialize its lists (if config is set,
         it will use config to set up the lists). Note that config is the preferred way; the data_sources interface exists
-        mostly for debugging and testing purposes, may not be present in subclasses, and may be removed altogether.
+        exclusively for debugging and testing purposes, may not be present in subclasses, and may be removed altogether.
 
         Other keyword-only arguments, if present, forces writing to self; (creation_time, last_change, description).
         These values are never read back in the base class (but written to from multiple places) and are provided for derived classes.
@@ -108,9 +108,9 @@ class BaseCharVersion:
             raise ValueError("Need to provide exactly one of data_sources or some form of config")
         if data_sources is None:
             if py_config is not None:
-                self._config = CharVersionConfig.CVConfig(from_python=py_config, char_version=self, validate_setup=False)
+                self._config = CharVersionConfig.CVConfig(from_python=py_config, char_version=self, validate_setup=False, setup_managers=True)
             elif json_config is not None:
-                self._config = CharVersionConfig.CVConfig(from_json=json_config, char_version=self, validate_setup=False)
+                self._config = CharVersionConfig.CVConfig(from_json=json_config, char_version=self, validate_setup=False, setup_managers=True)
             else:
                 config.char_version = self
                 self._config = config
