@@ -12,8 +12,30 @@ import logging
 import warnings
 from django.db import transaction
 from .EditModes import EditModes
+from enum import Enum, auto
 
 config_logger = logging.getLogger('chargen.CVConfig')
+
+class DataSourceDescription:
+    """
+    Class that describes a data source and that indicates how a user can interact with it in the CharVersion config
+    settings. Should be subclassed.
+    """
+    movable: bool = True  # Can a user move the data source
+    toggleable: bool = False  # Can a user toggle the data source from active / inactive
+    active: bool = True  # Is the data source active
+    description: str = ""  # Description that is displayed to the user
+
+    # Position block of the data source. Data sources can only be moved within the blocks.
+    class PositionType(Enum):
+        start = auto()
+        middle = auto()
+        end = auto()
+    position: PositionType = PositionType.middle
+
+    # When adding a data source with priority != None, it will get its initial position within its block according to
+    # priority.
+    priority: Optional[int] = None
 
 
 class CVConfig:
@@ -77,10 +99,11 @@ class CVConfig:
         {'name': 'defaults', 'args': [], 'kwargs': {}},
     ]
     _edit_mode: EditModes  # enum type
-    managers: Optional[List['BaseCVManager']]
+    _managers: Optional[List['BaseCVManager']]
     _char_version: Optional['BaseCharVersion']  # weak-ref?
     _db_char_version: Optional['CharVersionModel']  # weak-ref?
     post_process: deque
+    _data_source_descriptions: Optional[List[DataSourceDescription]]
 
     def __init__(self, *, from_python: dict = None, from_json: str = None,
                  validate_syntax: bool = False, setup_managers: bool = True,
@@ -112,7 +135,8 @@ class CVConfig:
 
         # TODO: Do we want this?
         self.post_process = deque()
-        self.managers = None
+        self._managers = None
+        self._data_source_descriptions = None
         if validate_syntax:
             self.validate_syntax(self.python_recipe)
         if setup_managers:
@@ -127,6 +151,18 @@ class CVConfig:
         #     except ValueError:
         #        config_logger.exception("Validation of CVConfig failed")
         #        raise
+
+    @property
+    def managers(self) -> List['BaseCVManager']:
+        if self._managers is None:
+            raise ValueError("Need to setup managers first")
+        return self._managers
+
+    @property
+    def data_source_descriptions(self) -> List[DataSourceDescription]:
+        if self._data_source_descriptions is None:
+            raise ValueError("Need to setup managers first")
+        return self._data_source_descriptions
 
     @property
     def char_version(self) -> 'BaseCharVersion':
@@ -180,23 +216,23 @@ class CVConfig:
         cls.known_types[type_id] = creator
         config_logger.info("Registered CV %s" % type_id)
 
-    # class _Functors:
-    #     """
-    #     Subclass to avoid peculiarities of Python. (notably, the distinction function/static methods/method attributes,
-    #     which behave differently during class scope and if called from outside AFTER the class definition has finished.)
-    #     """
-    #     @staticmethod
-    #     def add_post_processing(method):  # decorator intended for methods of CVConfig
-    #         """
-    #         Calls all functions stored in the post_process queue after the method
-    #         """
-    #         @wraps(method)
-    #         def new_method(self: 'CVConfig', *args, **kwargs):
-    #             ret = method(self, *args, **kwargs)
-    #             while self.post_process:
-    #                 ret = self.post_process.popleft()(ret)
-    #             return ret
-    #         return new_method
+    class _Functors:
+        """
+        Subclass to avoid peculiarities of Python. (notably, the distinction function/static methods/method attributes,
+        which behave differently during class scope and if called from outside AFTER the class definition has finished.)
+        """
+        @staticmethod
+        def add_post_processing(method):  # decorator intended for methods of CVConfig
+            """
+            Calls all functions stored in the post_process queue after the method
+            """
+            @wraps(method)
+            def new_method(self: 'CVConfig', *args, **kwargs):
+                ret = method(self, *args, **kwargs)
+                while self.post_process:
+                    ret = self.post_process.popleft()(ret)
+                return ret
+            return new_method
 
     # processors can call this to add functions to the queue. These are then called after every processor has run.
     def add_to_end_of_post_process_queue(self, fun: Callable[[Any], Any], /):
@@ -205,28 +241,28 @@ class CVConfig:
     def add_to_front_of_post_process_queue(self, fun: Callable[[Any], Any], /):
         self.post_process.appendleft(fun)
 
-    def run_on_managers(self, method_name: str, /, *args, **kwargs):
-        if self.managers is None:
-            raise ValueError("Need to setup managers first")
-        for manager in self.managers:
-            if fun := getattr(manager, method_name):
-                fun(*args, **kwargs)
-            else:
-                # This should not happen because we define the relevant methods as no-ops in a base class.
-                # TODO: Consider simplifying this
-                config_logger.critical("method name %s not found in manager", method_name)
+    # def run_on_managers(self, method_name: str, /, *args, **kwargs):
+    #     if self.managers is None:
+    #         raise ValueError("Need to setup managers first")
+    #     for manager in self.managers:
+    #         if fun := getattr(manager, method_name):
+    #             fun(*args, **kwargs)
+    #         else:
+    #             # This should not happen because we define the relevant methods as no-ops in a base class.
+    #             # TODO: Consider simplifying this
+    #             config_logger.critical("method name %s not found in manager", method_name)
 
     if TYPE_CHECKING:
         @staticmethod
-        def validate_sub_JSON(arg: Any) -> None:  # For static type checkers that look at the first definition.
+        def validate_JSON_serializability(arg: Any) -> None:  # For static type checkers that look at the first definition.
             """
             Checks whether arg is a python object that adheres to our JSON-serializability restrictions.
             (Note that we are stricter that JSON proper). In case of non-adherence, we raise a ValueError.
             """
     else:
         # noinspection PyMethodParameters,PyMethodMayBeStatic
-        def validate_sub_JSON() -> Callable:  # creator-function to make recursion work without reference to the containing class, lack of self-parameter is correct.
-            def real_validate_sub_JSON(arg):
+        def validate_JSON_serializability() -> Callable:  # creator-function to make recursion work without reference to the containing class, lack of self-parameter is correct.
+            def real_validate_JSON_serializability(arg):
                 """
                 Checks whether arg is a python object that adheres to our JSON-serializability restrictions.
                 (Note that we are stricter that JSON proper). In case of non-adherence, we raise a ValueError.
@@ -235,18 +271,18 @@ class CVConfig:
                     return
                 elif type(arg) is list:  # No sub-typing! Also, fail on tuples.
                     for item in arg:
-                        real_validate_sub_JSON(item)
+                        real_validate_JSON_serializability(item)
                     return
                 elif type(arg) is dict:
                     for key, value in arg.items():
                         if type(key) is not str:
                             raise ValueError("Invalid CVConfig: non-string dict key")
-                        real_validate_sub_JSON(value)
+                        real_validate_JSON_serializability(value)
                     return
                 else:
                     raise ValueError("Invalid CVConfig: Contains non-allowed python type")
-            return real_validate_sub_JSON
-        validate_sub_JSON = staticmethod(validate_sub_JSON())
+            return real_validate_JSON_serializability
+        validate_JSON_serializability = staticmethod(validate_JSON_serializability())
 
     @classmethod
     def validate_syntax(cls, /, py: dict) -> None:
@@ -262,9 +298,14 @@ class CVConfig:
             raise ValueError("Invalid CVConfig: edit_mode not set")
         try:
             py['edit_mode'] = int(py['edit_mode'])
-            cls.validate_sub_JSON(py)
+            cls.validate_JSON_serializability(py)
         finally:
             py['edit_mode'] = EditModes(py['edit_mode'])
+        try:
+            if type(py['data_source_order']) is not list:
+                raise ValueError("Invalid CVConfig: data_source_order is not list")
+        except KeyError:
+            raise ValueError("Invalid CVConfig: Missing data_source_order")
         for sub_recipe_spec in cls.sub_recipes:
             sub_recipe_list = py.get(sub_recipe_spec['name'], [])
             if type(sub_recipe_list) is not list:
@@ -284,7 +325,8 @@ class CVConfig:
 
     def setup_managers(self):
         cls = type(self)
-        self.managers = []
+        self._managers = []
+        self._data_source_descriptions = []
         for sub_recipe_spec in cls.sub_recipes:
             sub_recipe_list = self.python_recipe.get(sub_recipe_spec['name'], [])
             default_args = sub_recipe_spec['args']
@@ -298,15 +340,16 @@ class CVConfig:
                 kwargs['recipe'] = ingredient
                 kwargs['recipe_type'] = sub_recipe_spec['name']
                 kwargs.update(ingredient.get('kwargs', {}))
-                self.managers.append(cls.known_types[ingredient['type']](*args, **kwargs))
-        self.post_setup()
-
-    @_Functors.add_post_processing
-    def post_setup(self):
-        """
-        Called after all managers were created in setup.
-        """
-        self.run_on_managers('post_setup')
+                new_manager = cls.known_types[ingredient['type']](*args, **kwargs)
+                if not isinstance(new_manager, BaseCVManager):
+                    raise ValueError("Invalid manager: Not derived from BaseCVManager.")
+                self._managers.append(new_manager)
+        for manager in self.managers:
+            manager.post_setup()
+        while self.post_process:
+            self.post_process.popleft()()
+        for manager in self.managers:
+            self._data_source_descriptions += manager.data_source_descriptions
 
     @_Functors.add_post_processing
     def make_data_sources(self) -> List['CharDataSource']:
@@ -349,7 +392,8 @@ class CVConfig:
 
 
 EMPTY_RECIPE = {
-    'edit_mode': False
+    'edit_mode': False,
+    'data_source_order': [],
 }
 
 
@@ -357,6 +401,7 @@ class BaseCVManager:
     """
     Manager that does nothing. For testing and serves as base class. Not registered.
     """
+    data_source_descriptions: List[DataSourceDescription] = []
 
     def __init__(self, cv_config: CVConfig, recipe: dict, recipe_type: str, *args, **kwargs):
         self.args = args
@@ -371,7 +416,10 @@ class BaseCVManager:
         new_recipe = dict(self.instructions)
         target_recipe[self.recipe_type].append(new_recipe)
 
-    def post_setup(self):
+    def post_setup(self) -> None:
+        """
+        Called after setup has finished for all managers
+        """
         pass
 
     def get_data_sources(self) -> Iterable['CharDataSource']:
