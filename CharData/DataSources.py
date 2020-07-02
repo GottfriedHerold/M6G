@@ -26,22 +26,24 @@ class CharDataSource:
     default_write: bool = False  # Writes go into this data source by default. At most one data source per BaseCharVersion.
     read_only: bool = False  # Cannot write / delete if this is set.
     # At least one of these two must be set by derived class. We do not allow setting this on the instance level.
-    stores_input_data: ClassVar[bool]  # stores input data.
-    stores_parsed_data: ClassVar[bool]  # stores parsed data.
+    stores_input_data: ClassVar[bool]  # stores input data. Set by __init_subclass__ to False if unset.
+    stores_parsed_data: ClassVar[bool]  # stores parsed data. Set by __init_subclass__ to False if unset.
 
 
     # The following class/object attributes are not part of the interface, but employed by the default implementation.
 
     # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
     # (alternatively, override all methods that use input_data/parsed_data)
-    input_data: Union[Mapping, MutableMapping]  # self.storage is where input data is stored if stored_input_data is set
+    input_data: Union[Mapping, MutableMapping]  # self.input_data is where input data is stored if stored_input_data is set
     parsed_data: Union[Mapping, MutableMapping]  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
 
     input_parser = staticmethod(Parser.input_string_to_value)  # parser to transform input values to parsed_data.
 
-    # TODO: dir
+    # TODO: dir - like functions that return all keys (possibly filtered by prefix, possibly only return prefixes etc.)
+    # Note that the Chargen Expression Language should expose these by a special key (in order to facilitate dependency tracking for caching)
     # TODO: (prefix?) restriction
 
+    # TODO: We may remove this in favor of query-level prefix restrictions.
     def _check_key(self, key: str) -> bool:
         """
         The default implementation runs this on keys before some operations to check whether the key may even be
@@ -60,6 +62,15 @@ class CharDataSource:
             return False
         return True
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if 'stores_input_data' not in cls.__dict__:
+            cls.stores_input_data = False
+        if 'stores_pared_data' not in cls.__dict__:
+            cls.stores_parsed_data = False
+        if not (cls.stores_input_data or cls.stores_parsed_data):
+            raise AssertionError("Data source class must set at least one of stores_input_data or stores_parsed_data to True")
+
     def __contains__(self, key: str) -> bool:
         """
         Checks if key is contained in the data source
@@ -74,8 +85,7 @@ class CharDataSource:
     def __getitem__(self, key: str) -> Any:
         """
         Gets the parsed item stored under this key.
-        TODO: Is raising KeyError on non-existent keys a requirement?
-
+        TODO: Is raising KeyError on non-existent keys a requirement? Alternative is doing arbitrary DataSource-dependent other things like raising a different exception.
         """
         if self.stores_parsed_data:
             return self.parsed_data[key]
@@ -84,7 +94,7 @@ class CharDataSource:
 
     def bulk_get_items(self, keys: Iterable[str]) -> Dict[str, Any]:
         """
-        Get multiple data. Returns a dict. May be overridden for efficiency.
+        Get multiple data. Returns a dict. The default delegates to __getitem__, but may be overridden for efficiency.
         TODO: Prescribe behaviour on non-existent keys? Default?
         """
         return {key: self[key] for key in keys}
@@ -92,7 +102,7 @@ class CharDataSource:
     def __setitem__(self, key: str, value: object) -> None:
         """
         Sets the ("parsed", i.e. raw python) value stored under key.
-        Note that if the data source stores input data, this function makes no sense.
+        Note that if the data source stores input data, this function makes no sense and we raise an Error.
         (This would make parsed and input data inconsistent)
         """
         if not self._check_key(key):
@@ -112,6 +122,7 @@ class CharDataSource:
     def __delitem__(self, key: str) -> None:
         """
         Deletes the key from the data source. This assumes that the key was present beforehand.
+        TODO: Prescribe behaviour if key not present?
         """
         if not self._check_key(key):
             raise KeyError("Data source does not support deleting this key")
@@ -132,8 +143,8 @@ class CharDataSource:
         Gets the input data associated to the key, or default = "" if not found.
 
         Note: If we do not store input data, returns None. This may be overwritten by a derived class to return
-        an error message string. It must not throw an exception.
-        The default = "" behaviour must NOT be overwritten.
+        an error message string. It must *not* throw an exception in that case.
+        The default = "" behaviour (which is relevant iff the data source stores actual input data) must NOT be overwritten.
         """
         if not self.stores_input_data:
             return None
@@ -172,18 +183,14 @@ class CharDataSource:
 
     def bulk_set_inputs(self, key_vals: Dict[str, str]) -> None:
         """
-        Sets several inputs at once. input is a dict {key, vals}
+        Sets several inputs at once. input is a dict {key: values}.
+        The default delegates to set_input, but it may be overridden for efficiency.
         """
         for key, val in key_vals.items():
             self.set_input(key, val)
 
     def __str__(self) -> str:
         return "Data source of type " + self.dict_type + ": " + self.description
-
-    # def __new__(cls):
-    #    if not (cls.stores_parsed_data or cls.stores_input_data):
-    #        raise ValueError("This DataSource can not store any data")
-    #    return super().__new__(cls)
 
 
 class CharDataSourceDict(CharDataSource):

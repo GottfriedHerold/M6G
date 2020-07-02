@@ -8,7 +8,7 @@ import re
 # re_key_regular matches for valid keys, whose constituent parts do not begin or end with double underscores
 # re_key_restrict matches for keys, where one of the constituent begins or ends with an underscore
 # for the latter, the resulting match object M = re_key_restrict.fullmatch("__a__.__b__.c")
-# has the LAST such constituent availible as M.group('restrict') == "__b__"
+# has the LAST such constituent available as M.group('restrict') == "__b__"
 # M.group('tail') == ".c" is what follows the last such constituent (note that this is empty or begins with ".")
 # M.group('head') is everything up to tail (exclusive).
 # See test_regexps.py for examples

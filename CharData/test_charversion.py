@@ -1,7 +1,7 @@
 import CharData.DataSources
 from . import BaseCharVersion
 from . import Parser
-import logging
+# import logging
 
 def _test_dict_like_data_source(data_source: CharData.DataSources.CharDataSource):
     assert "x" not in data_source

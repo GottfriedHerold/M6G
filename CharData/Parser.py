@@ -1,7 +1,10 @@
 """
     This is the parser that converts input strings such as into abstract syntax trees (ASTs) with an evaluation routine
     e.g. T = parser.parse("11+5") yields an abstract syntax tree T with
-    T.eval_ast(None,{})  == 16. (The arguments to T.eval_ast are irrelevant for this particular example)
+    T.eval_ast(None,{})  == 16.
+
+    Note that the arguments to T.eval_ast are irrelevant for this particular example and that the user needs to input
+    "=11+5", the initial "=" being consumed and used to determine this is to be parsed by this module at all.
 
     We use PLY (Python lex/yacc) to build the parser.
     Note that PLY makes extensive use of introspection, i.e. PLY analyzes the function definitions in this Parser.py
@@ -32,7 +35,7 @@
 # Concrete convenience functions will probably be added as one writes database-entries for a given set of RPG rules to
 # actually match demand.
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Union, Final
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -42,6 +45,7 @@ import ply.yacc as yacc
 from ply.lex import TOKEN
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
 from .CharExceptions import DataError, CGParseException, CGEvalException
+from itertools import chain
 
 # We need BaseCharVersion for type annotations. Unfortunately, this would create circular imports, which are OK only
 # while statically type-checking, but not otherwise.
@@ -50,9 +54,9 @@ if TYPE_CHECKING:
 
 # Recognized keywords by the tokenizer.
 # ply.lex generates tokens with a value and a type. For keywords in this list, value == type == keyword string.
-# keywords must be allcaps.
+# keywords must be all-caps.
 
-keywords = [
+keywords: Final = [
     'COND',  # may turn into core_constant
     'OR',
     'AND',
@@ -66,13 +70,13 @@ keywords = [
     'ELSE',
 ]
 
-_EMPTYSET = frozenset()
+_EMPTYSET: Final = frozenset()
 
-# Python constants (dict is a constant of type callable) that are exposed as additional keywords.
+# Python constants (dict is a constant of type callable) that are exposed like additional keywords.
 
-core_constants = {
+core_constants: Final = {
     'LIST': list,
-    'DICT': dict,  # not sure whether this works on all interpreters
+    'DICT': dict,  # not sure whether this works on all Python interpreters
     'EMPTYSET': _EMPTYSET,
     'True': True,
     'False': False,
@@ -86,7 +90,7 @@ core_constants = {
 # like environmental variables that need to be set externally by the caller when actually evaluating. Or more generally,
 # things that are in some sense context-dependent.
 
-special_args = {
+special_args: Final = {
     # keys are what is recognized as $Key (after uppercasing, so keys need to be capitalized here).
     # values are pairs (TOKEN, Value) to mean that this gets tokenized as a token of type TOKEN with value Value.
     # TOKEN needs to be in the tokens list. Value may later be used by the parser rules after tokenizing.
@@ -116,7 +120,7 @@ special_args = {
 # CONTINUE_LOOKUP is a special environmental variable that is used internally in the lookup procedure.
 # (i.e. there is a special variable $Continue that is reserved for internal usage.)
 # It can not be used as a variable in lambdas (enforced by Continue being uppercase).
-CONTINUE_LOOKUP = 'Continue'
+CONTINUE_LOOKUP: Final = 'Continue'
 
 # Parse results are abstract syntax trees, which may contain lambdas and (bound or free) variables $foo.
 # Every tree node knows which variables are free in its subtree.
@@ -125,7 +129,7 @@ CONTINUE_LOOKUP = 'Continue'
 _ALLOWED_SPECIAL_ARGS = frozenset({'Name', 'Query', CONTINUE_LOOKUP})
 
 # PLY looks for a variable named tokens (and literals) to determine the set of tokens in its parsing rules later.
-tokens = [
+tokens: Final = [
              'STRING',  # Quote - enclosed string
              'IDIV',  # // (integral division, as opposed to /, which gives floats)
              'INT',  # Integer
@@ -154,8 +158,8 @@ tokens = [
 # generating a token for the parser.
 
 # Note: Order matters!
-# Function defs take priority (in order of definition),
-# then t_TOKEN = regexp defs (in order of decreasing length of regexp)
+# Function definitions take priority (in order of definition),
+# then t_TOKEN = regexp definitions (in order of decreasing length of regexp)
 # then literals
 
 
@@ -230,7 +234,7 @@ def t_error(token):
 # e.g. whitespace in string literals), but may act as separators.
 t_ignore = ' \t\n\r\f\v'  # ignore (ASCII) whitespace. We complain about Non-Ascii unicode whitespace.
 
-# t_foo = string specifications and literals take precedence in order of length. So // will match IDIV and not / twice.
+# t_foo = string specifications and literals take precedence in order of length. So // will match IDIV rather than / twice.
 t_IDIV = r"//"
 t_EQUALS = r"=="
 t_NEQUALS = r"!="
@@ -245,6 +249,7 @@ literals = "+-*/%()[],<>={}:"
 # If the signing key for the session cookies leaks, an attacker can create forged session cookies.
 # Since cookies may contain (supposedly signed) pickled python objects, an attacker can hijack pickle for remote code
 # execution.
+# Less maliciously, standard python types expose mutating functions such as list.append that we do not wish to be callable.
 
 # use PLY.lex to actually generate the lexer now.
 lexer = lex.lex()
@@ -298,8 +303,8 @@ class AST:
         """ Default constructor for AST nodes. Collect and stores the arguments as child nodes
             and sets the set of free variables in a default way (either union of children or provided by caller)
             If more complicated behaviour is needed, the derived class needs to handle that.
-            :param kw:  Arbitary positional arguments are stored in self.child (which is a list)
-                        These are usually ASTs (the exception being argument lists of lambda defs and calls).
+            :param kw:  Arbitary positional arguments are stored in self.child (which is a list / tuple)
+                        kw entries are usually ASTs (the exception being argument lists of lambda defs and calls).
             :param needs_env: set of appearing free variables.
                             Defaults to the union of the child nodes (we assume these are ASTs)
             Note that some derived classes may override __init__ without calling super.
@@ -307,7 +312,8 @@ class AST:
         # TODO: Check if last statement in docstring is still true.
         self.child = kw
         if needs_env is None:
-            self.needs_env = _EMPTYSET.union(*[x.needs_env for x in kw])
+            self.needs_env = frozenset(chain.from_iterable(map(lambda x: x.needs_env, kw)))
+            # self.needs_env = _EMPTYSET.union(*[x.needs_env for x in kw])
         else:
             self.needs_env = needs_env
 

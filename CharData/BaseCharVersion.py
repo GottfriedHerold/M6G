@@ -1,4 +1,5 @@
 """
+TODO: Redo lookup specification!!!
 This module defines a class that is used to hold and access a (version of a) character's data.
 Note that characters are supposed to be versioned in a simple (non-branching) fashion.
 The main data that is used to hold the character is a list S = [S0,S1,S2,...] of dict-like data source objects.
@@ -27,7 +28,7 @@ do not edit the data source object directly, but through methods provided by Bas
 from datetime import datetime, timezone
 # from collections import UserDict
 # if TYPE_CHECKING:
-from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator
+from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator, Final
 # import logging
 # logger = logging.getLogger()
 
@@ -45,34 +46,7 @@ from .DataSources import CharDataSource
 _Ret_Type = TypeVar("_Ret_Type")
 _Arg_Type = TypeVar("_Arg_Type")
 
-_ALL_SUFFIX = "_all"
-
-
-def _act_on_data_source(action: Callable[..., _Ret_Type], /) -> Callable[..., _Ret_Type]:
-    """
-    Decorator that takes a BaseCharVersion method action(self, source, ...)
-    and turns into a method action(self, ..., where=None, target_type=None, target_desc=None) with keyword-only
-    parameters where, target_type, target_desc instead of source.
-    The new action calls original action with source as the data source defined by where, target_type and target_desc.
-    """
-    @wraps(action)  # I do not know how to adjust the type hints for _inner
-    def _inner(self: "BaseCharVersion", *args, where: Union[int, None, CharDataSource] = None,
-               target_type: Optional[str] = None, target_desc: Optional[str] = None, **kwargs) -> _Ret_Type:
-        if where is None:
-            where = self.get_target_index(target_type, target_desc)
-        if isinstance(where, int):
-            return action(self, self.data_sources[where], *args, **kwargs)
-        else:
-            if where not in self.data_sources:
-                raise LookupError("Invalid data source: Not in this BaseCharVersion's data list.")
-            return action(self, where, *args, **kwargs)
-    if 'source' in _inner.__annotations__:
-        del _inner.__annotations__['source']
-    _inner.__annotations__['where'] = 'Union[int, None, CharDataSource]'
-    _inner.__annotations__['target_type'] = Optional[str]
-    _inner.__annotations__['target_desc'] = Optional[str]
-    return _inner
-
+_ALL_SUFFIX: Final = "_all"
 
 class BaseCharVersion:
     """
@@ -108,9 +82,9 @@ class BaseCharVersion:
             raise ValueError("Need to provide exactly one of data_sources or some form of config")
         if data_sources is None:
             if py_config is not None:
-                self._config = CharVersionConfig.CVConfig(from_python=py_config, char_version=self, validate_setup=False, setup_managers=True)
+                self._config = CharVersionConfig.CVConfig(from_python=py_config, char_version=self, setup_managers=True)
             elif json_config is not None:
-                self._config = CharVersionConfig.CVConfig(from_json=json_config, char_version=self, validate_setup=False, setup_managers=True)
+                self._config = CharVersionConfig.CVConfig(from_json=json_config, char_version=self, setup_managers=True)
             else:
                 config.char_version = self
                 self._config = config
@@ -150,12 +124,44 @@ class BaseCharVersion:
     # def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
     #    return False
 
+    class _Decorators:
+        @staticmethod
+        def act_on_data_source(action: Callable[..., _Ret_Type], /) -> Callable[..., _Ret_Type]:
+            """
+            Decorator that takes a BaseCharVersion method action(self, source, ...)
+            and turns into a method action(self, ..., where=None, target_type=None, target_desc=None) with keyword-only
+            parameters where, target_type, target_desc instead of source.
+            The new action calls original action with source as the data source defined by where, target_type and target_desc.
+            """
+
+            @wraps(action)  # I do not know how to adjust the type hints for _inner
+            def _inner(self: "BaseCharVersion", *args, where: Union[int, None, CharDataSource] = None,
+                       target_type: Optional[str] = None, target_desc: Optional[str] = None, **kwargs) -> _Ret_Type:
+                if where is None:
+                    where = self.get_target_index(target_type, target_desc)
+                if isinstance(where, int):
+                    return action(self, self.data_sources[where], *args, **kwargs)
+                else:
+                    if where not in self.data_sources:
+                        raise LookupError("Invalid data source: Not in this BaseCharVersion's data list.")
+                    return action(self, where, *args, **kwargs)
+
+            if 'source' in _inner.__annotations__:
+                del _inner.__annotations__['source']
+            _inner.__annotations__['where'] = 'Union[int, None, CharDataSource]'
+            _inner.__annotations__['target_type'] = Optional[str]
+            _inner.__annotations__['target_desc'] = Optional[str]
+            return _inner
+
     @property
     def data_sources(self) -> List[CharDataSource]:
         return self._data_sources
 
     @data_sources.setter
     def data_sources(self, new_lists, /):
+        """
+        Should only be called from debug code, really. May be removed in the future.
+        """
         self._data_sources = new_lists
         self._update_list_lookup_info()
 
@@ -197,6 +203,9 @@ class BaseCharVersion:
     # if no such argument is given at all, we fall back to a default data source, if one is marked as such.
     # target_type / target_desc must only be used if where is not used
 
+    # Note the distinction between key and query: queries are what undergo our lookup rules. Keys are where lookup ends
+    # up and are where things are stored under.
+
     def get_target_index(self, target_type: Optional[str], target_desc: Optional[str]) -> Optional[int]:
         """
         finds the index of a data source from target_type / target_desc. Mostly used internally.
@@ -229,35 +238,38 @@ class BaseCharVersion:
     # This is to prevent IDEs / type checkers from providing misinformation.
 
     def get_data_source(self, *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> CharDataSource: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def get_data_source(self, source: CharDataSource) -> CharDataSource:
         return source
 
     def set(self, key: str, value: object, *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def set(self, source: CharDataSource, key: str, value: object) -> None:
         source[key] = value
         self.last_change = datetime.now(timezone.utc)
 
     def bulk_set(self, key_values: Dict[str, object], *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def bulk_set(self, source: CharDataSource, key_values: Dict[str, object]) -> None:
         source.bulk_set_items(key_values)
-        self.last_change = datetime.now(timezone.utc)
+        if key_values:
+            self.last_change = datetime.now(timezone.utc)
 
     def set_input(self, key: str, value: str, *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def set_input(self, source: CharDataSource, key: str, value: str) -> None:
         source.set_input(key, value)
         self.last_change = datetime.now(timezone.utc)
 
     def bulk_set_input(self, key_values: Dict[str, str], *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def bulk_set_input(self, source: CharDataSource, key_values: Dict[str, str]) -> None:
         source.bulk_set_inputs(key_values)
+        if key_values:
+            self.last_change = datetime.now(timezone.utc)
 
     def delete(self, key: str, *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def delete(self, source: CharDataSource, key: str) -> None:
         """
         Deletes data_source[key] where data_source is specified by where / target_type / target_desc.
@@ -267,13 +279,14 @@ class BaseCharVersion:
         self.last_change = datetime.now(timezone.utc)
 
     def bulk_delete(self, keys: Iterable[str], *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def bulk_delete(self, source: CharDataSource, keys: Iterable[str]) -> None:
         source.bulk_del_items(keys)
-        self.last_change = datetime.now(timezone.utc)
+        if keys:
+            self.last_change = datetime.now(timezone.utc)
 
     def get_input(self, key: str, default: str, *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> str: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def get_input(self, source: CharDataSource, key: str, default: str = "") -> str:
         """
         Gets the input string that was used to set data_source[key] in the data_source specified by where / target_type / target_desc.
@@ -288,23 +301,23 @@ class BaseCharVersion:
         return source.get_input(key, default=default)
 
     def bulk_get_inputs(self, keys: Iterable[str], default: str = "", *, where: Union[CharDataSource, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> Dict[str, str]: ...
-    @_act_on_data_source
+    @_Decorators.act_on_data_source
     def bulk_get_inputs(self, source: CharDataSource, keys: Iterable[str], default: str = "") -> Dict[str, str]:
         return source.bulk_get_inputs(keys, default=default)
 
-    def find_query(self, key: str, *, indices: Optional[Iterable[int]] = None) -> Tuple[str, int]:
+    def find_query(self, query: str, *, indices: Optional[Iterable[int]] = None) -> Tuple[str, int]:
         """
         Find where a given (non-function) query string is located in self.lists
-        :param key: query string
+        :param query: query string
         :param indices: None or list of indices to restrict lookup rules to
         :return: pair (query, index) such that self.lists[index][query] is where the lookup for key ends up
         """
         try:
-            return next(self.find_lookup(key, indices=indices))
+            return next(self.find_lookup(query, indices=indices))
         except StopIteration:
             raise LookupError
 
-    def get_input_source(self, key: str, *, default=("", True)) -> Tuple[str, bool]:
+    def get_input_source(self, query: str, *, default=("", True)) -> Tuple[str, bool]:
         """
         Retrieves the input source string for a given query string key as first return value.
         The second return value indicates whether the data source where lookup ends up has input data at all.
@@ -317,18 +330,18 @@ class BaseCharVersion:
         If the second return value is False, the first may be None or an arbitrary string.
         """
         try:
-            query, where = self.find_query(key)
+            query, where = self.find_query(query)
         except LookupError:
             return default
         # Note that get_input should not throw an exception when stores_input_data is False,
         # but rather return some value indicating error (None, "", or an error message string)
         return self.get_input(query, where=where), self.data_sources[where].stores_input_data
 
-    def bulk_get_input_sources(self, keys: Iterable[str], *, default=("", True)) -> Dict[str, Tuple[str, bool]]:
-        return {key: self.get_input_source(key, default=default) for key in keys}
+    def bulk_get_input_sources(self, queries: Iterable[str], *, default=("", True)) -> Dict[str, Tuple[str, bool]]:
+        return {query: self.get_input_source(query, default=default) for query in queries}
 
     def bulk_get(self, queries: Iterable[str], default=None) -> Dict[str, Any]:
-        return {key: self.get(key, default=default) for key in queries}
+        return {query: self.get(query, default=default) for query in queries}
 
     def get(self, query: str, *, locator: Iterable = None, default=None) -> Any:
         """
@@ -396,6 +409,7 @@ class BaseCharVersion:
                 ret = CharExceptions.DataError("Error evaluating " + located_key, exception=e)  # TODO: Keep exception?
         return ret
 
+    # TODO: Redo lookup
     def lookup_candidates(self, query: str, *, restricted: bool = None, indices: Iterable[int] = None) -> Generator[Tuple[str, int], None, None]:
         """
         generator that yields all possible candidates for a given query string, implementing our lookup rules.
@@ -544,7 +558,7 @@ class BaseCharVersion:
 
     def bulk_process(self, commands: list) -> dict:
         """
-        This processes multiple get/set/delete actions with one call once.
+        This processes multiple get/set/delete actions with one call at once.
         Note that we reorder the actions. The order is arbitrary, except that all modifying operations are executed
         before all querying operations. (Multiple modifications to the same key will give arbitrary results)
 
@@ -626,7 +640,7 @@ class BaseCharVersion:
                 action_id, target_id, args = next(it)
             if action_id == 4:  # get_source, can appear only once
                 assert target_id == 0
-                result['get_source'] = self.bulk_get_input_sources(keys=args)
+                result['get_source'] = self.bulk_get_input_sources(queries=args)
                 action_id, target_id, args = next(it)
             if action_id == 5:
                 result['get_input'] = {}

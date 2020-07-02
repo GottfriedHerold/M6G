@@ -1,5 +1,5 @@
 from enum import IntEnum
-from django.db.models import IntegerChoices
+# from django.db.models import IntegerChoices
 
 class EditModes(IntEnum):
     NORMAL = 0
