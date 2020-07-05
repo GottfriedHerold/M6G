@@ -1,3 +1,5 @@
+import DBInterface.models.dict_models
+import enable_orm  # has side-effects
 from django.test import TestCase
 from .models import CGUser, CGGroup, CharVersionModel, CharModel, UserPermissionsForChar, GroupPermissionsForChar, get_default_group, CharUsers
 from CharData import CharVersionConfig
@@ -54,11 +56,11 @@ class DBToDictWrapper(TestCase):
         self.char1_2 = self.char1.create_char_version(parent=self.char1_1)
 
     def test_DBDictWrapper(self):
-        dict_like1 = SimpleDBToDict(manager=models.ShortDictEntry.objects, char_version_model_pk=self.char1_1.pk)
-        dict_like2 = SimpleDBToDict(manager=models.ShortDictEntry.objects, char_version_model_pk=self.char1_2.pk)
-        dict_like_long = SimpleDBToDict(manager=models.LongDictEntry.objects, char_version_model_pk=self.char1_1.pk)
+        dict_like1 = SimpleDBToDict(manager=DBInterface.models.dict_models.ShortDictEntry.objects, char_version_model_pk=self.char1_1.pk)
+        dict_like2 = SimpleDBToDict(manager=DBInterface.models.dict_models.ShortDictEntry.objects, char_version_model_pk=self.char1_2.pk)
+        dict_like_long = SimpleDBToDict(manager=DBInterface.models.dict_models.LongDictEntry.objects, char_version_model_pk=self.char1_1.pk)
 
-        models.ShortDictEntry.objects.create(char_version=self.char1_2, key='x', value='y')
+        DBInterface.models.dict_models.ShortDictEntry.objects.create(char_version=self.char1_2, key='x', value='y')
         self.assertEqual(len(dict_like1), 0)
         dict_like1['abc'] = '1'
         dict_like1['cde'] = '5'

@@ -62,13 +62,9 @@ class CharDataSource:
             return False
         return True
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, abstract: bool = False, **kwargs):
         super().__init_subclass__(**kwargs)
-        if 'stores_input_data' not in cls.__dict__:
-            cls.stores_input_data = False
-        if 'stores_pared_data' not in cls.__dict__:
-            cls.stores_parsed_data = False
-        if not (cls.stores_input_data or cls.stores_parsed_data):
+        if not (abstract or cls.stores_input_data or cls.stores_parsed_data):
             raise AssertionError("Data source class must set at least one of stores_input_data or stores_parsed_data to True")
 
     def __contains__(self, key: str) -> bool:

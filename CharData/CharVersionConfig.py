@@ -111,13 +111,19 @@ class CVConfig:
     _managers: Optional[List['BaseCVManager']]
     _char_version: Optional['BaseCharVersion']  # weak-ref?
     _db_char_version: Optional['CharVersionModel']  # weak-ref?
+
     post_process_setup: Deque[Callable[[], None]]
     post_process_make_data_sources: Deque[Callable[[list], list]]
+    post_process_create: Deque[Callable[[], None]]
+    post_process_validate: Deque[Callable[[], None]]
+
     post_process_copy_config: Deque[Callable[[dict], None]]  # Not setup in init!
+
+
     _data_source_descriptions: Optional[List[DataSourceDescription]]
 
     def __init__(self, *, from_python: dict = None, from_json: str = None,
-                 validate_syntax: bool = False, setup_managers: bool = True,
+                 validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = False,
                  char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None):
         """
         Creates a CharVersionConfig object from either a python dict or from json.
@@ -138,7 +144,7 @@ class CVConfig:
         # self.char_version's property setter may set self._db_char_version if char_version is of an appropriate type.
         # We check whether this matches db_char_version if provided
 
-        if db_from_char := getattr(self, '_db_char_version'):
+        if db_from_char := getattr(self, '_db_char_version', None):
             if db_char_version is not None and db_char_version != db_from_char:
                 raise ValueError("both char_version and db_char_version provided with incompatible values.")
         else:
@@ -147,22 +153,23 @@ class CVConfig:
         # TODO: Do we want this?
         self.post_process_setup = deque()
         self.post_process_make_data_sources = deque()
+        self.post_process_create = deque()
+        self.post_process_validate = deque()
+
         self._managers = None
         self._data_source_descriptions = None
         if validate_syntax:
             self.validate_syntax(self.python_recipe)
         if setup_managers:
             self.setup_managers()
-        # if validate_setup is None:
-        #    validate_setup = setup_managers
-        # if validate_setup:
-        #     if not setup_managers:
-        #         raise ValueError("validate_setup=True requires setup_managers=True")
-        #     try:
-        #         self.validate_setup()
-        #     except ValueError:
-        #        config_logger.exception("Validation of CVConfig failed")
-        #        raise
+        if validate_setup:
+            if not setup_managers:
+                raise ValueError("validate_setup = True requires setup_managers = True")
+            try:
+                self.validate_setup()
+            except ValueError:
+                config_logger.exception("Validation of CVConfig failed")
+                raise
 
     @property
     def managers(self) -> List['BaseCVManager']:
@@ -248,7 +255,7 @@ class CVConfig:
     #     if self.managers is None:
     #         raise ValueError("Need to setup managers first")
     #     for manager in self.managers:
-    #         if fun := getattr(manager, method_name):
+    #         if fun := getattr(manager, method_name, None):
     #             fun(*args, **kwargs)
     #         else:
     #             # This should not happen because we define the relevant methods as no-ops in a base class.
@@ -405,6 +412,8 @@ class CVConfig:
         """
         for manager in self.managers:
             manager.validate_config()
+        while self.post_process_validate:
+            self.post_process_validate.popleft()()
         data_source_order_copy = sorted(self.data_source_order)
         if data_source_order_copy != list(range(len(self.data_source_descriptions))):
             raise ValueError("data_source_order is not a permutation of data_source_descriptions")
@@ -437,6 +446,21 @@ class CVConfig:
         new_config = CVConfig(from_python=new_py_recipe, validate_syntax=True, setup_managers=True)
         new_config.validate_setup()
         return new_config
+
+    def create_root_char_version(self, validate=True):
+        """
+        Called when a new root char version is created in the database.
+        Managers were set up with db_char_version being correct.
+        Validation will be done AFTER this dependent on validate.
+        Note that create_root_char_version might add to the post_process_validate queue.
+        """
+
+        for manager in self.managers:
+            manager.create_root_char_version(self.db_char_version)
+        while self.post_process_create:
+            self.post_process_create.popleft()()
+        if validate:
+            self.validate_setup()
 
 
 EMPTY_RECIPE = {
@@ -518,6 +542,13 @@ class BaseCVManager:
 
     def get_data_sources(self, description: DataSourceDescription) -> Iterable['CharDataSource']:
         return []
+
+    def create_root_char_version(self, db_char_version: 'CharVersionModel') -> None:
+        """
+        Called on all managers when creating a new (root) char version.
+        TODO: Modifying config would be doable, but this would need some extra stepts and tests.
+        """
+        return
 
     def make_data_source(self, *, description: DataSourceDescription, target_list: List['CharDataSource']) -> None:
         target_list.extend(self.get_data_sources(description))

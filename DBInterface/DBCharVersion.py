@@ -1,27 +1,26 @@
 from CharData.BaseCharVersion import BaseCharVersion
-from CharData.DataSources import CharDataSource
-from CharData.CharVersionConfig import CVConfig
 from collections import abc
-from . import models
+from .models import CharVersionModel, DictEntry, MANAGER_TYPE
 import contextlib
-from typing import Union
 import logging
-logger = logging.getLogger("chargen.db_char_version")
 from django.core.exceptions import ObjectDoesNotExist
-import functools
+
+logger = logging.getLogger("chargen.db_char_version")
 
 # class GenericDBDataSource(CharDataSource):
 #    dict_manager: MANAGER_TYPE[DictEntry]  # to be set to the appropriate models.objects Manager
 
 class DBCharVersion(BaseCharVersion):
-    _db_instance: models.CharVersionModel
+    _db_instance: CharVersionModel
+
     _delay_saving: bool  # When delay_saving is set to True, saving of metadata to db is delayed until delay_saving is reset to False.
-        # Intended usage is "with self.delayed_metadata_saving(): ..."
+    # Intended usage is "with self.delayed_metadata_saving(): ..."
+
     _needs_saving: bool  # Records whether we need to save metadata back to db upon clearing delay_saving
 
-    def __init__(self, *, pk=None, db_instance: models.CharVersionModel = None, **kwargs):
+    def __init__(self, *, pk=None, db_instance: CharVersionModel = None, **kwargs):
         """
-        Initializes a DBCharversion object that is associated with a given CharVersionModel instance.
+        Initializes a DBCharversion object that is associated with a given CharVersionModel database instance.
         Note that the instance typically already exist in the database.
         TODO: Do we need / allow db_instance.pk == None, so saving it will assign a pk?
         Either pk or db_instance must be given to specify the CharVersionModel instance either by a primary key in
@@ -35,21 +34,23 @@ class DBCharVersion(BaseCharVersion):
         if (pk is None) == (db_instance is None):
             raise ValueError("Need to give either pk or db_instance")
         if db_instance:
+            if db_instance.pk is None:
+                raise RuntimeWarning("associated db_instance is not in database")
             self._db_instance = db_instance
         else:
-            self._db_instance = models.CharVersionModel.objects.get(pk=pk)  # May raise exception
+            self._db_instance = CharVersionModel.objects.get(pk=pk)  # Will raise exception if pk is not in db.
         self._delay_saving = False
         self._needs_saving = False
         with self.delayed_metadata_saving():
             super().__init__(json_config=self._db_instance.json_config, **kwargs)
 
     @property
-    def db_instance(self) -> models.CharVersionModel:
+    def db_instance(self) -> CharVersionModel:
         return self._db_instance
 
     def save(self) -> None:
         if not self._delay_saving:
-            self._db_instance.edit_mode = self.config.edit_mode
+            self._db_instance.edit_mode = self.config.edit_mode  # TODO
             self._db_instance.save()
 
     @property
@@ -75,7 +76,7 @@ class DBCharVersion(BaseCharVersion):
     class _Meta:
         @staticmethod
         def bind_to_db(name: str, create_setter: bool = True) -> property:  # Used to bind attribute names of DBCharVersion to attributes of models.CharVersionModel via DBCharVersion._db_instance
-            assert hasattr(models.CharVersionModel, name)
+            assert hasattr(CharVersionModel, name)
 
             def getter(s: 'DBCharVersion'):
                 return getattr(s._db_instance, name)
@@ -103,7 +104,6 @@ class DBCharVersion(BaseCharVersion):
     version_name = _Meta.bind_to_db('version_name')
 
 
-
 class SimpleDBToDict(abc.MutableMapping):
     """
     Wrapper that allows to treat models.DictEntry (and derived types) for a specific CharVersion like a dictionary.
@@ -113,12 +113,12 @@ class SimpleDBToDict(abc.MutableMapping):
     Eventually, it will be more efficient to directly write a DB-based DataSource without an intermediate dict-wrapper.
     """
 
-    manager: models.MANAGER_TYPE[models.DictEntry]
-    char_version_model: models.CharVersionModel
-    main_manager: models.MANAGER_TYPE[models.DictEntry]
+    manager: MANAGER_TYPE[DictEntry]
+    char_version_model: CharVersionModel
+    main_manager: MANAGER_TYPE[DictEntry]
 
-    def __init__(self, *, manager: models.MANAGER_TYPE[models.DictEntry], char_version_model_pk: int):
-        self.char_version_model = models.CharVersionModel.make_dummy(char_version_model_pk)
+    def __init__(self, *, manager: MANAGER_TYPE[DictEntry], char_version_model_pk: int):
+        self.char_version_model = CharVersionModel.make_dummy(char_version_model_pk)
         self.main_manager = manager
         self.manager = manager.filter(char_version=self.char_version_model)
 

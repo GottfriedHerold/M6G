@@ -5,7 +5,7 @@ from an is_ready function in apps.py.
 Importing it twice risks registering the functions twice, so this should NOT be imported anywhere else.
 
 In general, signals should be avoided!
-Document then in models.py.
+Document then in the relevant models.
 """
 
 
