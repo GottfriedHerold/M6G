@@ -123,14 +123,14 @@ class CharVersionModel(models.Model):
     # We have a pre_delete signal to ensure the tree structure.
     # This is done via a signal to ensure it works on bulk deletes
     # TODO: We have on_delete = models.PROTECT now, pre_delete signal should fail.
-    # NOTE: parent is mostly for informational purposes. Actual semantic references are contained in refers_to.
+    # NOTE: parent is mostly for informational purposes.
+    # Actual semantic references are tracked by CVReferencesModel (with refers_to and referred_by reverses here)
     parent: 'Optional[CharVersionModel]' = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True,
                                                              related_name='children', related_query_name='child')
-    refers_to: 'RELATED_MANAGER_TYPE[CharVersionModel]' = models.ManyToManyField('self', symmetrical=False,
-                                                                                 related_name='referred_by', through='CVReferencesModel',
-                                                                                 through_fields=('source', 'target'))
-
-    referred_by: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse to m2m refers_to
+    # Note that these should be thought of as a m2m model trough CVReferencesModel.
+    # (We need multiple relations between the same pair to be possible, which ManyToMany models do not support)
+    references_from: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse to foreign key from CVReferencesModel
+    references_to: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse to foreign key from CVReferencesModel
     children: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse to foreign key parent
 
     # JSON metadata to initialize the data sources
@@ -289,7 +289,7 @@ class CVReferencesModel(models.Model):
     class ReferenceType(models.IntegerChoices):
         OVERWRITE = 1
 
-    source: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.CASCADE, related_name='+')
-    target: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.CASCADE, related_name='+')
-    reason_str: str = models.CharField(max_length=100, blank=False, null=False)
+    source: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.CASCADE, related_name='references_from')
+    target: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.PROTECT, related_name='references_to')
+    reason_str: str = models.CharField(max_length=200, blank=False, null=False)
     ref_type: int = models.IntegerField(choices=ReferenceType.choices, default=ReferenceType.OVERWRITE)
