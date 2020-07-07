@@ -3,6 +3,7 @@ from typing import Iterable, TYPE_CHECKING, Union
 
 from django.contrib.auth.base_user import BaseUserManager, AbstractBaseUser
 from django.db import models, transaction, IntegrityError
+from django.conf import settings
 
 # from .models import CharUsers
 from .meta import MyMeta, CG_USERNAME_MAX_LENGTH, RELATED_MANAGER_TYPE, MANAGER_TYPE, MAX_GROUP_NAME_LENGTH
@@ -50,7 +51,10 @@ class CGUserManager(BaseUserManager):
         user = self.create_user(username=username, email=email, password=password)
         user.is_admin = True
         user.save(using=self._db)
-        user_logger.critical('Turned user into superuser with username %s', username)
+        if settings.TESTING_MODE:
+            user_logger.info('Turned user into superuser with username %s', username)
+        else:
+            user_logger.critical('Turned user into superuser with username %s', username)
         return user
 
 
@@ -158,7 +162,10 @@ def get_default_group() -> CGGroup:
     """
     all_group, created = CGGroup.objects.get_or_create(pk=1, defaults={'name': 'all users'})
     if created:
-        logger.warning('Had to setup CGGroup for all users')
+        if settings.TESTING_MODE is False:
+            logger.warning('Had to setup CGGroup for all users')
+        else:
+            logger.debug('Had to setup CGGroup for all users')
     elif all_group.name != 'all users':
         logger.critical('CGGroup with id 1 does not have the expected name.')
     return all_group

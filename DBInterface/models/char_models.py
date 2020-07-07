@@ -2,12 +2,12 @@ from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 import logging
 
-from django.db import models, transaction
+from django.db import models, transaction, IntegrityError
 
 # from . import CharVersionModel
 from .user_model import CGUser, CGGroup
 from .meta import MyMeta, CHAR_NAME_MAX_LENGTH, CHAR_DESCRIPTION_MAX_LENGTH, CV_DESCRIPTION_MAX_LENGTH, RELATED_MANAGER_TYPE, MANAGER_TYPE
-from CharData.EditModes import EditModes, EditModesChoices
+from CharData.EditModes import EditModes, EditModesChoices, ALLOWED_REFERENCE_TARGETS
 from CharData.CharVersionConfig import CVConfig
 if TYPE_CHECKING:
     from .permission_models import UserPermissionsForChar, GroupPermissionsForChar, CharUsers
@@ -283,6 +283,15 @@ class CVReferencesModel(models.Model):
     Intermediate class for CharVersion -> CharVersion semantic references.
     We have an entry here whenever a CharVersion refers to another CharVersion
     (and effectively locks the target!)
+
+    Constraints:
+    source != target (restriction may be removed, but we check it for now)
+    source.owner == target.owner
+    target.edit_mode in ALLOWED_REFERENCE_TARGETS (list defined in EditModes.py)
+
+    Furthermore, CVReference has some "owner" that is responsible for creating/deleting it, depending on ref_type.
+    For ref_type OVERWRITE, this is the source itself, which must have edit_mode.is_overwriter() == True.
+    We would like to enforce these checks at the DB level, but cannot do so with Django.
     """
     class Meta(MyMeta):
         pass
@@ -293,3 +302,32 @@ class CVReferencesModel(models.Model):
     target: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.PROTECT, related_name='references_to')
     reason_str: str = models.CharField(max_length=200, blank=False, null=False)
     ref_type: int = models.IntegerField(choices=ReferenceType.choices, default=ReferenceType.OVERWRITE)
+    objects: MANAGER_TYPE['CVReferencesModel']
+
+    def check_validity(self) -> None:
+        """
+        Checks validity constraints for this CVReference (assumed to be in sync with DB).
+        We cannot include these constraints at the DB level with django because it involves joins.
+        Indicates failure by raising an IntegrityError.
+        """
+        if self.source == self.target:
+            raise IntegrityError("CharVersion reference to itself")
+        if self.source.owner != self.target.owner:
+            raise IntegrityError("CharVersion references only allowed with the same Char model")
+        if self.target.edit_mode not in ALLOWED_REFERENCE_TARGETS:
+            raise IntegrityError("CharVersion reference to target that does not allow being references")
+        if self.ref_type == self.ReferenceType.OVERWRITE.value:
+            if self.source.edit_mode.is_overwriter() is False:
+                raise IntegrityError("CharVersion references overwrite target, but but source has wrong type")
+
+    @classmethod
+    def check_reference_validity_for_char_version(cls, char_version: CharVersionModel) -> None:
+        """
+        Checks validity constraints for all References involving char_version (assumed to be in sync with DB)
+        """
+        for source_references in cls.objects.filter(source=char_version):
+            source_references.check_validity()
+        for target_references in cls.objects.filter(target=char_version):
+            target_references.check_validity()
+
+

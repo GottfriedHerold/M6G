@@ -31,6 +31,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+TESTING_MODE = False  # Custom attribute. This is set to True by runtests.py
 
 # Application definition
 
