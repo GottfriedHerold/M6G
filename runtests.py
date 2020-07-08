@@ -18,4 +18,3 @@ if __name__ == "__main__":
     test_runner = TestRunner()
     failures = test_runner.run_tests(None)
     sys.exit(bool(failures))
-

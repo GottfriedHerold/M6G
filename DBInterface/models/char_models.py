@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, List
 import logging
 
 from django.db import models, transaction, IntegrityError
@@ -277,6 +277,34 @@ class CharVersionModel(models.Model):
         from .permission_models import CharUsers
         return CharUsers.user_may_write(char=self, user=user)
 
+    @classmethod
+    def validate_treeness(cls, char: CharModel) -> None:
+        """
+        Checks that the parent-relation gives a directed forest for the versions of a given char.
+        Raises an exception if not.
+        soft-O(n^2) algorithm for stupid reasons (next(filter...)), but too lazy to change.
+        """
+        cvs = list(cls.objects.filter(owner=char))
+        for cv in cvs:
+            if cv.parent.pk not in cvs:
+                raise IntegrityError("char version's parent's owner != owner")
+        check_cvs: List[Optional[int]] = [None] * len(cvs)
+        indices = range(len(cvs))
+        for i in range(len(cvs)):
+            if check_cvs[i] is not None:
+                continue
+            j = i
+            while check_cvs[j] is None:
+                check_cvs[j] = i
+                target = cvs[j].parent
+                if target is None:
+                    break
+                j = next(filter(lambda index: cvs[index] == target, indices))
+            else:  # No break in while loop
+                if check_cvs[j] == i:
+                    raise IntegrityError("Char version's parent relation has a cycle")
+        assert all(x is not None for x in check_cvs)
+
 
 class CVReferencesModel(models.Model):
     """
@@ -329,5 +357,7 @@ class CVReferencesModel(models.Model):
             source_references.check_validity()
         for target_references in cls.objects.filter(target=char_version):
             target_references.check_validity()
-
-
+        if char_version.edit_mode.is_overwriter() and \
+                cls.objects.filter(source=char_version, ref_type=cls.ReferenceType.OVERWRITE.value).count() != 1:
+            raise IntegrityError("Invalid number of overwrite targets")
+        # TODO: Check managed
