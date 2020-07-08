@@ -130,10 +130,10 @@ def test_charversion_utils():
 
     cv.data_sources = [list_1, list_2, list_3, list_4, list_5, list_6, list_7]
 
-    cv.bulk_set({'delme': 1, 'delmetoo': '2'}, target_type ='typeP')
-    cv.bulk_set_input({'delmetootoo': '=2'}, where =2)
+    cv.bulk_set({'delme': 1, 'delmetoo': '2'}, target_type='typeP')
+    cv.bulk_set_input({'delmetootoo': '=2'}, where=2)
 
-    commanddel1 = {'action': 'delete', 'target_type': 'typeP', 'keys': [ 'delme', 'delmetoo'] }
+    commanddel1 = {'action': 'delete', 'target_type': 'typeP', 'keys': ['delme', 'delmetoo'] }
     commanddel2 = {'action': 'delete', 'where': 2, 'keys': ['delmetootoo']}
     commandadd1 = {'action': 'set', 'target_desc': 'desc_p', 'key_values': {'b.x': 5, 'bb': True}}
     commandadd2 = {'action': 'set_input', 'where': 1, 'key_values': [('b.b.x', '=$AUTO * $AUTO')]}
@@ -158,4 +158,4 @@ def test_charversion_utils():
     assert isinstance(answer2['x.bb'][0], (str, type(None)))
     assert answer2['b.b.c.x'] == ('=$AUTO * $AUTO', True)
     answer3 = answer['get']
-    assert answer3 == {'b.b.x':25, 'b.x': 5, 'x.bb': True, 'b.b.d.x': 25}
+    assert answer3 == {'b.b.x': 25, 'b.x': 5, 'x.bb': True, 'b.b.d.x': 25}

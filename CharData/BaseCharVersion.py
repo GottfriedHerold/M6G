@@ -23,16 +23,11 @@ do not edit the data source object directly, but through methods provided by Bas
 (This is because BaseCharVersion might introduce caching in the future)
 """
 
-# from typing import TYPE_CHECKING
-
 from datetime import datetime, timezone
-# from collections import UserDict
-# if TYPE_CHECKING:
 from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator, Final
 # import logging
 # logger = logging.getLogger()
 
-# import itertools
 from . import Regexps
 from . import Parser
 from . import CharExceptions
@@ -91,6 +86,9 @@ class BaseCharVersion:
                 self._config.setup_managers()
             self._data_sources = self._config.make_data_sources()
         else:
+            from django.conf import settings
+            if not settings.TESTING_MODE:
+                raise RuntimeWarning("data sources interface to CharData is deprecated")
             self._data_sources = data_sources
             self._config = None
 

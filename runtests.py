@@ -15,6 +15,6 @@ if __name__ == "__main__":
     # May modify settings!
     django.setup()
     TestRunner = get_runner(django_settings)
-    test_runner = TestRunner()
+    test_runner = TestRunner(verbosity=2)
     failures = test_runner.run_tests(None)
     sys.exit(bool(failures))
