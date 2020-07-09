@@ -51,7 +51,7 @@ class CharModel(models.Model):
         """
         Creates a new char with the given name and description.
         The creator is recorded as the creator and given read/write permissions.
-        You will need to create an initial char version by char.make_char_version(...)
+        You will need to create an initial char version by char.create_root_char_version(...)
         :return: char
         """
         current_time: datetime = datetime.now(timezone.utc)
@@ -87,10 +87,40 @@ class CharModel(models.Model):
         from .permission_models import CharUsers
         return CharUsers.user_may_write(char=self, user=user)
 
+    def validate_treeness(self) -> None:
+        """
+        Checks that the parent-relation gives a directed forest for the versions of a given char.
+        Raises an exception if not.
+        soft-O(n^2) algorithm for stupid reasons (next(filter...)), but too lazy to change.
+        TODO: Currently unused and untested
+        """
+        cvs = list(CharVersionModel.objects.filter(owner=self))
+        for cv in cvs:
+            if cv.parent.pk not in cvs:
+                raise IntegrityError("char version's parent's owner != owner")
+        check_cvs: List[Optional[int]] = [None] * len(cvs)
+        indices = range(len(cvs))
+        for i in range(len(cvs)):
+            if check_cvs[i] is not None:
+                continue
+            j = i
+            while check_cvs[j] is None:
+                check_cvs[j] = i
+                target = cvs[j].parent
+                if target is None:
+                    break
+                j = next(filter(lambda index: cvs[index] == target, indices))
+            else:  # No break in while loop
+                if check_cvs[j] == i:
+                    raise IntegrityError("Char version's parent relation has a cycle")
+        assert all(x is not None for x in check_cvs)
+
 
 class CharVersionModel(models.Model):
     """
     Data stored in the database for a char version. Note that many CharVersionModels belong to a single CharModel
+
+    Signals: pre-delete: TODO: Needs to be redone
     """
 
     class Meta(MyMeta):
@@ -150,6 +180,8 @@ class CharVersionModel(models.Model):
 
         While this is not a valid CharVersion object, it can be used in foreign-key queries.
         This is really only used as a workaround to limitations of Django.
+
+        TODO: Untested? May need to set more values.
         """
         ret = cls(pk=pk)
         ret.is_dummy = True
@@ -191,7 +223,8 @@ class CharVersionModel(models.Model):
         version_name = version_name or ""
         description = description or ""
 
-        new_config: CVConfig = CVConfig(from_json=json_config, from_python=python_config, validate_syntax=True)
+        # This just serves for the json<->python conversion, really.
+        new_config: CVConfig = CVConfig(from_json=json_config, from_python=python_config, validate_syntax=True, setup_managers=False)
 
         with transaction.atomic():
 
@@ -207,14 +240,20 @@ class CharVersionModel(models.Model):
                                                                       parent=None,
                                                                       _edit_mode=new_config.edit_mode.as_int(),
                                                                       owner=owner)
+                new_char_version.save()
                 char_logger.info("New CharVersionModel {0!s} created with pk {1}".format(new_char_version, new_char_version.pk))
-                # Re-create the config with the associated primary key.
-                new_config: CVConfig = CVConfig(from_python=new_config.python_recipe, setup_managers=True, db_char_version=new_char_version)
-                # Process creation hooks:
-                new_config.create_root_char_version(validate=True)
-                # TODO: Note that we assume for now that new_config.json_config has not changed.
+                # Re-create the config with the associated primary key and tell CVConfig that it is a new version.
+                # (This may trigger hooks in the associated managers)
+
+                new_config = CVConfig(from_python=new_config.python_recipe, setup_managers=True, db_char_version=new_char_version,
+                                      validate_setup=True, create=True)
+                # In theory, CVConfig with create = True might change new_config and validity, so we re-check things:
+                CVConfig(from_python=new_config.python_recipe, setup_managers=True, validate_syntax=True, validate_setup=True)
+                new_char_version.json_config = new_config.json_recipe
+                new_char_version.save()
                 owner.max_version += 1
                 owner.save()
+                CVReferencesModel.check_reference_validity_for_char_version(new_char_version)
             except BaseException:
                 char_logger.exception("Failed to create char version")
                 raise
@@ -241,14 +280,15 @@ class CharVersionModel(models.Model):
                 owner.refresh_from_db()
             else:
                 owner = parent.owner
+            # Note: Do not make assumptions on bool(edit_mode)
             new_edit_mode: EditModes = edit_mode if (edit_mode is not None) else parent.edit_mode
             overwrite = new_edit_mode.is_overwriter()
             new_version: CharVersionModel = cls.objects.get(pk=parent.pk)
             new_version.pk = None
             if transplant:
-                # This will raise an integrity error later anyway...
-                # if overwrite:
-                #     raise ValueError("Cannot set char for overwrite in transplant mode")
+                # This would raise an integrity error later anyway...
+                if overwrite:
+                    raise ValueError("Cannot set char for overwrite in transplant mode")
                 new_version.parent = None
                 new_version.owner = owner
             else:
@@ -260,13 +300,16 @@ class CharVersionModel(models.Model):
             # save with empty (and invalid!) json_config to create a db entry
             new_version.json_config = ""
             new_version.save()
-            # TODO: Add references due to overwrite
+            if overwrite:
+                CVReferencesModel.objects.create(source=new_version, target=parent, reason="Overwrite target",
+                                                 ref_type=CVReferencesModel.ReferenceType.OVERWRITE.value)
             parent_config: CVConfig(from_json=parent.json_config, validate_syntax=True, validate_setup=True, db_char_version=parent)
             new_config: CVConfig = parent_config.copy_config(target_db=new_version, new_edit_mode=edit_mode, transplant=transplant)
             new_version.json_config = new_config.json_recipe
             new_version.edit_mode = new_config.edit_mode
             new_version.edit_counter += 1
             new_version.save()
+            CVReferencesModel.check_reference_validity_for_char_version(new_version)
         return new_version
 
     def may_be_read_by(self, *, user: CGUser) -> bool:
@@ -276,35 +319,6 @@ class CharVersionModel(models.Model):
     def may_be_written_by(self, *, user: CGUser) -> bool:
         from .permission_models import CharUsers
         return CharUsers.user_may_write(char=self, user=user)
-
-    @classmethod
-    def validate_treeness(cls, char: CharModel) -> None:
-        """
-        Checks that the parent-relation gives a directed forest for the versions of a given char.
-        Raises an exception if not.
-        soft-O(n^2) algorithm for stupid reasons (next(filter...)), but too lazy to change.
-        """
-        cvs = list(cls.objects.filter(owner=char))
-        for cv in cvs:
-            if cv.parent.pk not in cvs:
-                raise IntegrityError("char version's parent's owner != owner")
-        check_cvs: List[Optional[int]] = [None] * len(cvs)
-        indices = range(len(cvs))
-        for i in range(len(cvs)):
-            if check_cvs[i] is not None:
-                continue
-            j = i
-            while check_cvs[j] is None:
-                check_cvs[j] = i
-                target = cvs[j].parent
-                if target is None:
-                    break
-                j = next(filter(lambda index: cvs[index] == target, indices))
-            else:  # No break in while loop
-                if check_cvs[j] == i:
-                    raise IntegrityError("Char version's parent relation has a cycle")
-        assert all(x is not None for x in check_cvs)
-
 
 class CVReferencesModel(models.Model):
     """
@@ -329,7 +343,7 @@ class CVReferencesModel(models.Model):
     source: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.CASCADE, related_name='references_from')
     target: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.PROTECT, related_name='references_to')
     reason_str: str = models.CharField(max_length=200, blank=False, null=False)
-    ref_type: int = models.IntegerField(choices=ReferenceType.choices, default=ReferenceType.OVERWRITE)
+    ref_type: int = models.IntegerField(choices=ReferenceType.choices, default=ReferenceType.OVERWRITE.value)
     objects: MANAGER_TYPE['CVReferencesModel']
 
     def check_validity(self) -> None:

@@ -114,7 +114,6 @@ class CVConfig:
 
     post_process_setup: Deque[Callable[[], None]]
     post_process_make_data_sources: Deque[Callable[[list], list]]
-    post_process_create: Deque[Callable[[], None]]
     post_process_validate: Deque[Callable[[], None]]
 
     post_process_copy_config: Deque[Callable[[dict], None]]  # Not setup in init!
@@ -124,9 +123,17 @@ class CVConfig:
 
     def __init__(self, *, from_python: dict = None, from_json: str = None,
                  validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = False,
-                 char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None):
+                 char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None,
+                 create: bool = False):
         """
         Creates a CharVersionConfig object from either a python dict or from json.
+        If validate_syntax is set, it will check whether the (computed or given) python dict adheres to the prescribed format.
+        setup_managers indicates whether the registered managers will be set up. This is required for most uses.
+        validate_setup (requires setup_managers) indicates whether some post-setup validation hooks should be run.
+        char_version / db_char_version refers the the CharVersion object / db_char_version object that this configuration
+        is attached to.
+        create indicates that this object was just created. Only meaningful if requires setup and db_char_version is set
+        It is communicated to the managers' post-setup hook, which may need to write some data to the database.
         """
         if (from_python is None) == (from_json is None):
             raise ValueError("Exactly one of from_python= or from_json= must be given and not be None.")
@@ -153,15 +160,18 @@ class CVConfig:
         # TODO: Do we want this?
         self.post_process_setup = deque()
         self.post_process_make_data_sources = deque()
-        self.post_process_create = deque()
         self.post_process_validate = deque()
 
         self._managers = None
         self._data_source_descriptions = None
         if validate_syntax:
             self.validate_syntax(self.python_recipe)
+        if create and not (validate_setup and setup_managers):
+            # Note: We intentionally do not check self._db_char_version here. It is intended to be not None,
+            # but we want to allow that for testing.
+            raise ValueError("create=True requires setup_managers and validate_setup to be set")
         if setup_managers:
-            self.setup_managers()
+            self.setup_managers(create=create)
         if validate_setup:
             if not setup_managers:
                 raise ValueError("validate_setup = True requires setup_managers = True")
@@ -344,7 +354,7 @@ class CVConfig:
                 if type(ingredient.get('kwargs', {})) is not dict:
                     raise ValueError("Invalid CVConfig: Entry's kwargs are not dict")
 
-    def setup_managers(self):
+    def setup_managers(self, create: bool = False):
         """
         Sets up the list of managers. This needs to be called after setup to do anything useful.
         This creates the list of managers according to the recipe given by JSON / python dict using the callables
@@ -375,7 +385,7 @@ class CVConfig:
                     raise ValueError("Invalid manager: Not derived from BaseCVManager.")
                 self._managers.append(new_manager)
         for manager in self.managers:
-            manager.post_setup()
+            manager.post_setup(create=create)
         while self.post_process_setup:
             self.post_process_setup.popleft()()
 
@@ -446,22 +456,6 @@ class CVConfig:
         new_config = CVConfig(from_python=new_py_recipe, validate_syntax=True, setup_managers=True)
         new_config.validate_setup()
         return new_config
-
-    def create_root_char_version(self, validate=True):
-        """
-        Called when a new root char version is created in the database.
-        Managers were set up with db_char_version being correct.
-        Validation will be done AFTER this dependent on validate.
-        Note that create_root_char_version might add to the post_process_validate queue.
-        """
-
-        for manager in self.managers:
-            manager.create_root_char_version(self.db_char_version)
-        while self.post_process_create:
-            self.post_process_create.popleft()()
-        if validate:
-            self.validate_setup()
-
 
 EMPTY_RECIPE = {
     'edit_mode': EditModes.NORMAL,
@@ -534,7 +528,7 @@ class BaseCVManager:
         new_recipe = dict(self.instructions)
         target_recipe[self.recipe_type].append(new_recipe)
 
-    def post_setup(self) -> None:
+    def post_setup(self, create: bool = False) -> None:
         """
         Called after setup has finished for all managers
         """
@@ -542,13 +536,6 @@ class BaseCVManager:
 
     def get_data_sources(self, description: DataSourceDescription) -> Iterable['CharDataSource']:
         return []
-
-    def create_root_char_version(self, db_char_version: 'CharVersionModel') -> None:
-        """
-        Called on all managers when creating a new (root) char version.
-        TODO: Modifying config would be doable, but this would need some extra stepts and tests.
-        """
-        return
 
     def make_data_source(self, *, description: DataSourceDescription, target_list: List['CharDataSource']) -> None:
         target_list.extend(self.get_data_sources(description))
