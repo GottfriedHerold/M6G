@@ -36,7 +36,7 @@ from . import CharVersionConfig
 from functools import wraps
 import itertools
 
-from .DataSourceBase import CharDataSourceBase
+from CharData.DataSources.CharDataSourceBase import CharDataSourceBase
 
 _Ret_Type = TypeVar("_Ret_Type")
 _Arg_Type = TypeVar("_Arg_Type")

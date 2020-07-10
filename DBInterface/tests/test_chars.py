@@ -1,9 +1,7 @@
 from django.db import transaction
 import django.test
-from DBInterface.models import CGUser, CGGroup, CharModel, CharVersionModel
-from DBInterface.models import get_default_group
+from DBInterface.models import CharModel, CharVersionModel
 from CharData.CharVersionConfig import EMPTY_RECIPE
-from CharData.EditModes import EditModes
 
 from .test_setup import setup_chars_and_versions
 

@@ -7,8 +7,8 @@ from django.db import models, transaction, IntegrityError
 # from . import CharVersionModel
 from .user_model import CGUser, CGGroup
 from .meta import MyMeta, CHAR_NAME_MAX_LENGTH, CHAR_DESCRIPTION_MAX_LENGTH, CV_DESCRIPTION_MAX_LENGTH, RELATED_MANAGER_TYPE, MANAGER_TYPE
-from CharData.EditModes import EditModes, EditModesChoices, ALLOWED_REFERENCE_TARGETS
-from CharData.CharVersionConfig import CVConfig
+from CharData.CharVersionConfig.EditModes import EditModes, EditModesChoices, ALLOWED_REFERENCE_TARGETS
+from CharData.CharVersionConfig import CVConfig, PythonConfigRecipe
 if TYPE_CHECKING:
     from .permission_models import UserPermissionsForChar, GroupPermissionsForChar, CharUsers
 
@@ -216,7 +216,7 @@ class CharVersionModel(models.Model):
 
     @classmethod
     def create_root_char_version(cls, *, version_name: str = None, description: str = None,
-                                 json_config: str = None, python_config: dict = None, owner: CharModel,
+                                 json_config: str = None, python_config: PythonConfigRecipe = None, owner: CharModel,
                                  edit_mode: EditModes = None) -> 'CharVersionModel':
         """
         Creates a brand new (root) char version that does not have a parent.
@@ -231,8 +231,8 @@ class CharVersionModel(models.Model):
         if edit_mode is not None:
             if python_config is None:
                 raise ValueError("explicitly setting edit_mode only available with python_config")
-            python_config = dict(python_config)  # shallow(!) copy is actually OK due to changing only one level deep.
-            python_config['edit_mode'] = edit_mode
+            python_config = python_config.make_copy()  # shallow(!) copy is actually OK due to changing only one level deep.
+            python_config.edit_mode = edit_mode
         version_name = version_name or ""
         description = description or ""
 

@@ -1,8 +1,8 @@
-import CharData.DataSourceBase
+from CharData.DataSources import CharDataSourceDict, CharDataSourceBase
 from CharData import Parser
 import unittest
 
-def _test_dict_like_data_source(data_source: CharData.DataSourceBase.CharDataSourceBase):
+def _test_dict_like_data_source(data_source: CharDataSourceBase):
     assert "x" not in data_source
     assert data_source.contains_unrestricted or data_source.contains_restricted
     assert data_source.stores_parsed_data or data_source.stores_input_data
@@ -57,20 +57,20 @@ def _test_dict_like_data_source(data_source: CharData.DataSourceBase.CharDataSou
 
 class TestCharDataSourceDict(unittest.TestCase):
 
-    class OnlyParsed(CharData.DataSourceBase.CharDataSourceBase):
+    class OnlyParsed(CharDataSourceBase):
         stores_input_data = False
         stores_parsed_data = True
         def __init__(self):
             self.parsed_data = dict()
 
-    class OnlyInput(CharData.DataSourceBase.CharDataSourceBase):
+    class OnlyInput(CharDataSourceBase):
         stores_input_data = True
         stores_parsed_data = False
         def __init__(self):
             self.input_data = dict()
 
     def test_data_source_dict(self):
-        x = CharData.DataSourceBase.CharDataSourceDict()
+        x = CharDataSourceDict()
         _test_dict_like_data_source(x)
 
     def test_only_parsed(self):

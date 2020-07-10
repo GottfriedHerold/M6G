@@ -1,16 +1,15 @@
 """
 Defines data source classes that relate to the database.
 """
-from CharData.CharVersionConfig import CVConfig, BaseCVManager
-from .models import MANAGER_TYPE, ShortDictEntry, LongDictEntry, DictEntry, SimpleDBToDict, CharVersionModel
-from CharData import DataSourceBase
+from DBInterface.models import MANAGER_TYPE, ShortDictEntry, LongDictEntry, DictEntry, SimpleDBToDict, CharVersionModel
+from CharData.DataSources import CharDataSourceBase
 import logging
 from typing import TYPE_CHECKING, List, ClassVar
 
 
 logger = logging.getLogger('chargen.dbdatasources')
 
-class NaiveDBDataSource(DataSourceBase.CharDataSourceBase):
+class NaiveDBDataSource(CharDataSourceBase):
     dict_type = "ShortDB"
     stores_input_data = True
     stores_parsed_data = False

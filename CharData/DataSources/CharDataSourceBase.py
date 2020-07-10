@@ -1,5 +1,9 @@
+"""
+This file implements the CharDataSourceBase class, which is the class all other DataSources are derived from.
+It implements the common interface and some sensible defaults that simplify deriving from it.
+"""
+
 from typing import Union, Mapping, MutableMapping, Any, Iterable, Dict, Optional, ClassVar
-from . CharVersionConfig import BaseCVManager, CVConfig
 
 from CharData import Parser, Regexps
 import logging
@@ -8,7 +12,10 @@ logger = logging.getLogger("chargen.data_sources")
 class CharDataSourceBase:
     """
     Abstract Base class for Char Data sources.
-    This implements some common behaviour and is supposed to be overridden.
+
+    A Char Data source is where CharVersions get their data from. In essence, it is a key-value store that provides
+    (up to) two interfaces: One interface for storing / retrieving user input strings that adhere to the
+    Chargen Expression language, and another interface for storing / retrieving parsed results.
     """
 
     # These two are not necessarily enforced by the setters or the underlying container(s); violating the restrictions
@@ -28,7 +35,6 @@ class CharDataSourceBase:
     # At least one of these two must be set by derived class. We do not allow setting this on the instance level.
     stores_input_data: ClassVar[bool]  # stores input data. Set by __init_subclass__ to False if unset.
     stores_parsed_data: ClassVar[bool]  # stores parsed data. Set by __init_subclass__ to False if unset.
-
 
     # The following class/object attributes are not part of the interface, but employed by the default implementation.
 
@@ -189,14 +195,3 @@ class CharDataSourceBase:
         return "Data source of type " + self.dict_type + ": " + self.description
 
 
-class CharDataSourceDict(CharDataSourceBase):
-    """
-    Wrapper for dicts (one for input data / one for parsed) -> CharDataSourceBase. Used for testing only.
-    """
-    dict_type = "Char data source dict"
-    stores_input_data = True
-    stores_parsed_data = True
-
-    def __init__(self):
-        self.input_data = dict()
-        self.parsed_data = dict()
