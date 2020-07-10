@@ -9,11 +9,29 @@ from DBInterface.models import CGUser, CGGroup, CharModel, CharVersionModel, CVR
 from DBInterface.models import get_default_group
 from CharData.CharVersionConfig import EMPTY_RECIPE
 from CharData.EditModes import EditModes
+from typing import TypedDict
 
-def setup_users_and_groups() -> dict:
+class _setup_users_and_groups_return_class(TypedDict):
+    """
+    Return type of setup_users_and_groups. This is a class to simplify type-checking.
+    """
+    admin1: CGUser
+    admin2: CGUser
+    user1: CGUser
+    user2: CGUser
+    user3: CGUser
+    user4: CGUser
+    user5: CGUser
+    test_users: CGGroup
+    main_users: CGGroup
+    admin_users: CGGroup
+    empty_group: CGGroup
+    group1: CGGroup
+
+def setup_users_and_groups() -> _setup_users_and_groups_return_class:
     """
     Creates a bunch of test users and groups in the database.
-    Returns a dict that contains them.
+    Returns a class that contains them.
     """
     if transaction.get_autocommit():
         raise AssertionError("Not contained in transaction")
@@ -32,10 +50,25 @@ def setup_users_and_groups() -> dict:
     ret['admin_users'] = CGGroup.create_group('admin_users', initial_users=[admin1, admin2])
     ret['empty_group'] = CGGroup.create_group('empty_group', initial_users=[])
     ret['group1'] = CGGroup.create_group('group1', initial_users=[user1])
-
     return ret
 
-def setup_chars_and_versions() -> dict:
+class _setup_chars_and_versions_return_class(_setup_users_and_groups_return_class):
+    admin_char1: CharModel
+    char1: CharModel
+    char2: CharModel
+    char3: CharModel
+    char4: CharModel
+    char5: CharModel
+    char6: CharModel
+    char7: CharModel
+    cv1_1: CharVersionModel
+    cv1_2: CharVersionModel
+    cv1_3: CharVersionModel
+    cv1_4: CharVersionModel
+    cv2_1: CharVersionModel
+    cv2_2: CharVersionModel
+
+def setup_chars_and_versions() -> _setup_chars_and_versions_return_class:
     """
     Runs setup_users_and_groups, then
     creates a bunch of test chars and versions in the database.
@@ -50,7 +83,7 @@ def setup_chars_and_versions() -> dict:
     cv2_1: root NORMAL
     cv2_2: root EDIT_DATA_NEW (derived from cv1_1)
     """
-    ret = setup_users_and_groups()
+    ret: dict = setup_users_and_groups()
     ret['char1'] = char1 = CharModel.create_char(name='test_char1', creator=ret['user1'], description='TestChar1')
     ret['admin_char1'] = admin_char1 = CharModel.create_char(name='admin_char1', creator=ret['admin1'], description='AdminChar1')
     ret['char2'] = char2 = CharModel.create_char(name='test_char2', creator=ret['user2'], description='TestChar2')
@@ -98,6 +131,7 @@ class TestUsersAndGroupSetup(django.test.TestCase):
 
     def test_setup_chars(self):
         for i in range(1, 7):
+            # noinspection PyTypedDict
             self.assertEqual(self.users_and_groups['char'+str(i)], CharModel.objects.get(name='test_char'+str(i)))
         cv1_1: CharVersionModel = self.users_and_groups['cv1_1']
         cv1_2: CharVersionModel = self.users_and_groups['cv1_2']

@@ -1,9 +1,7 @@
 from CharData.BaseCharVersion import BaseCharVersion
-from collections import abc
-from .models import CharVersionModel, DictEntry, MANAGER_TYPE
+from .models import CharVersionModel
 import contextlib
 import logging
-from django.core.exceptions import ObjectDoesNotExist
 
 logger = logging.getLogger("chargen.db_char_version")
 
@@ -102,48 +100,3 @@ class DBCharVersion(BaseCharVersion):
     description = _Meta.bind_to_db('description')
     name = _Meta.bind_to_db('name', False)
     version_name = _Meta.bind_to_db('version_name')
-
-
-class SimpleDBToDict(abc.MutableMapping):
-    """
-    Wrapper that allows to treat models.DictEntry (and derived types) for a specific CharVersion like a dictionary.
-
-    Usage: SimpleDBToDict(manager, char version's primary key). Manager will typically be models.DictEntry.objects
-    Can then be used to create a DataSource based on it. This is not very optimized, but will do for now.
-    Eventually, it will be more efficient to directly write a DB-based DataSource without an intermediate dict-wrapper.
-    """
-
-    manager: MANAGER_TYPE[DictEntry]
-    char_version_model: CharVersionModel
-    main_manager: MANAGER_TYPE[DictEntry]
-
-    def __init__(self, *, manager: MANAGER_TYPE[DictEntry], char_version_model_pk: int):
-        self.char_version_model = CharVersionModel.make_dummy(char_version_model_pk)
-        self.main_manager = manager
-        self.manager = manager.filter(char_version=self.char_version_model)
-
-    def __getitem__(self, item: str) -> str:
-        try:
-            return self.manager.get(key=item).value
-        except ObjectDoesNotExist:
-            raise KeyError
-
-    def __setitem__(self, key: str, value: str):
-        self.main_manager.update_or_create(defaults={'value': value}, key=key, char_version=self.char_version_model)
-
-    def __delitem__(self, key: str):
-        f = self.manager.filter(key=key)
-        if not f.exists():
-            raise KeyError(key)
-        f.delete()
-
-    def __contains__(self, item: str) -> bool:
-        return self.manager.filter(key=item).exists()
-
-    def __len__(self):
-        return self.manager.all().count()
-
-    # NOTE: The resulting items() dictview is fairly inefficient.
-    def __iter__(self):
-        return map(lambda x: x.key, iter(self.manager.all()))
-

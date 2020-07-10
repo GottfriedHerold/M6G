@@ -1,8 +1,7 @@
 import json
 import typing
-from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Any, Optional, List, Iterable, Deque, Final
+from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Any, Optional, List, Iterable, Deque, Final, TypedDict
 from collections import deque
-# from functools import wraps
 if TYPE_CHECKING:
     from .BaseCharVersion import BaseCharVersion
     from .DataSourceBase import CharDataSourceBase
@@ -44,6 +43,18 @@ class DataSourceDescription:
     def make_and_append(self, target_list: list) -> None:
         self.manager.make_data_source(description=self, target_list=target_list)
 
+class _Recipe_Dict_Base(TypedDict):
+    type: str
+    module: str
+
+class _Recipe_Dict(_Recipe_Dict_Base, total=False):
+    args: list
+    kwargs: dict
+
+class _Sub_Recipe_Dict(TypedDict):
+    name: str
+    args: list
+    kwargs: dict
 
 class CVConfig:
     """
@@ -100,13 +111,22 @@ class CVConfig:
     """
 
     known_types: ClassVar[Dict[str, Callable]] = {}  # stores known type-identifiers and their callable.
-    _python_recipe: dict
-    _json_recipe: Optional[str]
-    sub_recipes: ClassVar[list] = [  # name of recipe sub-lists that may appear
+    sub_recipes: ClassVar[List[_Sub_Recipe_Dict]] = [  # name of recipe sub-lists that may appear
         # {'name': 'data_sources', 'args': [], 'kwargs': {}},
         {'name': 'defaults', 'args': [], 'kwargs': {}},
         {'name': 'core', 'args': [], 'kwargs': {}},
     ]
+    # Add names to _Py_Recipe_Type (cannot do that dynamically, because _Py_Recipe_Type is for *static* type checking.)
+
+    class _Py_Recipe_Type(TypedDict):
+        edit_mode: EditModes
+        data_source_order: List[int]
+        defaults: List[_Recipe_Dict]
+        core: List[_Recipe_Dict]
+
+    _python_recipe: _Py_Recipe_Type
+    _json_recipe: Optional[str]
+
     _edit_mode: EditModes  # enum type
     _managers: Optional[List['BaseCVManager']]
     _char_version: Optional['BaseCharVersion']  # weak-ref?
@@ -119,8 +139,9 @@ class CVConfig:
     post_process_copy_config: Deque[Callable[[dict], None]]  # Not setup in init!
 
     _data_source_descriptions: Optional[List[DataSourceDescription]]
+    _data_sources: Optional[List['CharDataSourceBase']]
 
-    def __init__(self, *, from_python: dict = None, from_json: str = None,
+    def __init__(self, *, from_python: _Py_Recipe_Type = None, from_json: str = None,
                  validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = False,
                  char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None,
                  create: bool = False):
@@ -139,7 +160,7 @@ class CVConfig:
         if from_json is not None:
             self._json_recipe = from_json
             self._python_recipe = json.loads(self._json_recipe)
-            # Type-cast int -> IntEnum  (JSON stores EditMode as int)
+            # Type-cast int -> IntEnum  (JSON deserializes EditMode as int, so we need to fix that)
             self._edit_mode = self._python_recipe['edit_mode'] = EditModes(self.python_recipe['edit_mode'])
         else:
             self._python_recipe = from_python
@@ -156,18 +177,20 @@ class CVConfig:
         else:
             self._db_char_version = db_char_version
 
-        # TODO: Do we want this?
+        # TODO: Do we want this here or later? Note that post_process_copy_config is initialized later.
         self.post_process_setup = deque()
         self.post_process_make_data_sources = deque()
         self.post_process_validate = deque()
 
         self._managers = None
         self._data_source_descriptions = None
+        self._data_sources = None
         if validate_syntax:
             self.validate_syntax(self.python_recipe)
         if create and not (validate_setup and setup_managers):
             # Note: We intentionally do not check self._db_char_version here. It is intended to be not None,
             # but we want to allow that for testing.
+            # TODO: Check if that is actually used in testing.
             raise ValueError("create=True requires setup_managers and validate_setup to be set")
         if setup_managers:
             self.setup_managers(create=create)
@@ -176,7 +199,7 @@ class CVConfig:
                 raise ValueError("validate_setup = True requires setup_managers = True")
             try:
                 self.validate_setup()
-            except ValueError:
+            except BaseException:
                 config_logger.exception("Validation of CVConfig failed")
                 raise
 
@@ -217,7 +240,7 @@ class CVConfig:
         return self._json_recipe
 
     @property
-    def python_recipe(self) -> dict:
+    def python_recipe(self) -> _Py_Recipe_Type:
         return self._python_recipe
 
     @property
@@ -247,29 +270,6 @@ class CVConfig:
                     raise ValueError("Type identifier %s is already registered with a different creator" % type_id)
         cls.known_types[type_id] = creator
         config_logger.info("Registered CV %s" % type_id)
-
-    # # processors can call this to add functions to the queue. These are then called after some processors have run.
-    # def add_to_end_of_post_process_queue(self, fun: Callable[[Any], Any], /):
-    #     self.post_process.append(fun)
-    #
-    # def add_to_front_of_post_process_queue(self, fun: Callable[[Any], Any], /):
-    #     self.post_process.appendleft(fun)
-    #
-    # def handle_post_processing_queue(self, arg, /):
-    #     while self.post_process:
-    #         arg = self.post_process.popleft()(arg)
-    #     return arg
-
-    # def run_on_managers(self, method_name: str, /, *args, **kwargs):
-    #     if self.managers is None:
-    #         raise ValueError("Need to setup managers first")
-    #     for manager in self.managers:
-    #         if fun := getattr(manager, method_name, None):
-    #             fun(*args, **kwargs)
-    #         else:
-    #             # This should not happen because we define the relevant methods as no-ops in a base class.
-    #             # TODO: Consider simplifying this
-    #             config_logger.critical("method name %s not found in manager", method_name)
 
     if TYPE_CHECKING:
         @staticmethod
@@ -304,7 +304,7 @@ class CVConfig:
         validate_JSON_serializability = staticmethod(validate_JSON_serializability())
 
     @classmethod
-    def validate_syntax(cls, /, py: dict) -> None:
+    def validate_syntax(cls, /, py: _Py_Recipe_Type) -> None:
         """
         (Type-)Checks whether the python recipe has the correct form. Indicates failure by raising an exception.
         """
@@ -316,6 +316,7 @@ class CVConfig:
         except KeyError:
             raise ValueError("Invalid CVConfig: edit_mode not set")
         try:
+            # noinspection PyTypedDict
             py['edit_mode'] = int(py['edit_mode'])
             cls.validate_JSON_serializability(py)
         finally:
@@ -329,7 +330,8 @@ class CVConfig:
         except KeyError:
             raise ValueError("Invalid CVConfig: Missing data_source_order")
         for sub_recipe_spec in cls.sub_recipes:
-            sub_recipe_list = py.get(sub_recipe_spec['name'], [])
+            # noinspection PyTypedDict
+            sub_recipe_list: List[_Recipe_Dict] = py.get(sub_recipe_spec['name'], [])
             if type(sub_recipe_list) is not list:
                 raise ValueError("Invalid CVConfig: Individual sub-lists must be lists")
             for ingredient in sub_recipe_list:
@@ -353,7 +355,7 @@ class CVConfig:
                 if type(ingredient.get('kwargs', {})) is not dict:
                     raise ValueError("Invalid CVConfig: Entry's kwargs are not dict")
 
-    def setup_managers(self, create: bool = False):
+    def setup_managers(self, create: bool = False) -> None:
         """
         Sets up the list of managers. This needs to be called after setup to do anything useful.
         This creates the list of managers according to the recipe given by JSON / python dict using the callables
@@ -364,7 +366,8 @@ class CVConfig:
         cls = type(self)
         self._managers = []
         for sub_recipe_spec in cls.sub_recipes:
-            sub_recipe_list = self.python_recipe.get(sub_recipe_spec['name'], [])
+            # noinspection PyTypedDict
+            sub_recipe_list: List[_Recipe_Dict] = self.python_recipe.get(sub_recipe_spec['name'], [])
             default_args = sub_recipe_spec['args']
             default_kwargs = sub_recipe_spec['kwargs']
             for ingredient in sub_recipe_list:
@@ -406,12 +409,20 @@ class CVConfig:
         data_source_order, which is a list of indexes in data_source_descriptions (We maintain the invariant that it
         is a permutation of data_source_descriptions, although this is not really needed here).
         """
-        data_sources: list = list()
+        assert self._data_sources is None
+        self._data_sources: list = list()
         for data_source_description_index in self.data_source_order:
-            self.data_source_descriptions[data_source_description_index].make_and_append(target_list=data_sources)
+            self.data_source_descriptions[data_source_description_index].make_and_append(target_list=self._data_sources)
         while self.post_process_make_data_sources:
-            data_sources = self.post_process_make_data_sources.popleft()(data_sources)
-        return data_sources
+            self._data_sources = self.post_process_make_data_sources.popleft()(self._data_sources)
+        return self._data_sources
+
+    @property
+    def data_sources(self) -> List['CharDataSourceBase']:
+        if self._data_sources is None:
+            return self.make_data_sources()
+        else:
+            return self._data_sources
 
     def validate_setup(self) -> None:
         """
@@ -495,22 +506,35 @@ class BaseCVManager:
         if register:
             CVConfig.register(type_id=cls.type_id, creator=cls)
 
-    @classmethod
-    def recipe_base(cls):
-        """
-        This should be used in python recipes as {**CVManager.recipe_base(), ...} to set up type and module correctly.
-        """
-        return {'type': cls.type_id, 'module': cls.module}
-
-    def make_recipe(self):
-        return {**type(self).recipe_base(), 'args': self.args, 'kwargs': self.kwargs}
-
     def __init__(self, cv_config: CVConfig, recipe: dict, recipe_type: str, *args, **kwargs):
+        """
+        Called by CVConfig.setup_managers() to initialize the manager
+        :param cv_config: calling cv_config
+        :param recipe: refers to the entry in the calling cv_config's python_recipe[recipe_type] that was responsible for creating this.
+        :param recipe_type: recipe_type in the calling cv_config's python_recipe
+        :param args: arbitrary arguments from the recipe.
+        :param kwargs: arbitrary kw-arguments from the recipe.
+        """
         self.args = args
         self.kwargs = kwargs
         self.cv_config = cv_config
         self.instructions = recipe
         self.recipe_type = recipe_type
+
+    @classmethod
+    def recipe_base(cls) -> _Recipe_Dict_Base:
+        """
+        This should be used in python recipes as {**CVManager.recipe_base(), ...} to set up type and module correctly.
+        """
+        return {'type': cls.type_id, 'module': cls.module}
+
+    def make_recipe(self) -> _Recipe_Dict:
+        """
+        Used to re-create the arguments used to make this instance.
+        Is almost identical to self.instructions (except that 'args' / 'kwargs' / 'type' / 'module' is always present
+        and not defaulted)
+        """
+        return {**type(self).recipe_base(), 'args': self.args, 'kwargs': self.kwargs}
 
     def copy_config(self, target_recipe: dict, /, *, new_edit_mode: EditModes, transplant: bool, target_db: Optional['CharVersionModel']) -> None:
         """
@@ -523,6 +547,8 @@ class BaseCVManager:
 
         self.cv_config.post_process_copy_config is a deque of callables(new_py_recipe) that is called after all
         copy_configs are run.
+
+        Both copy_config and the the callables modify its target_recipe argument.
         """
         if self.recipe_type not in target_recipe:
             target_recipe[self.recipe_type] = list()
@@ -546,7 +572,3 @@ class BaseCVManager:
 
 
 BaseCVManager.__init_subclass__()
-
-# BaseCVManager.module = BaseCVManager.__module__
-
-# CVConfig.register('base', BaseCVManager)

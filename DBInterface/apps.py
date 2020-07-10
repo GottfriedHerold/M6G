@@ -15,4 +15,4 @@ class DBInterfaceConfig(AppConfig):
             # noinspection PyUnresolvedReferences
             from . import signals  # This has side-effects!
             # noinspection PyUnresolvedReferences
-            from . import DBDataSources  # This has side-effects
+            # from . import DBDataSources  # This has side-effects
