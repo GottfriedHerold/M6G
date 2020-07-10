@@ -5,7 +5,7 @@ from CharData import Parser, Regexps
 import logging
 logger = logging.getLogger("chargen.data_sources")
 
-class CharDataSource:
+class CharDataSourceBase:
     """
     Abstract Base class for Char Data sources.
     This implements some common behaviour and is supposed to be overridden.
@@ -32,7 +32,7 @@ class CharDataSource:
 
     # The following class/object attributes are not part of the interface, but employed by the default implementation.
 
-    # One or both of these two need to be set by a derived class to make CharDataSource's default methods work:
+    # One or both of these two need to be set by a derived class to make CharDataSourceBase's default methods work:
     # (alternatively, override all methods that use input_data/parsed_data)
     input_data: Union[Mapping, MutableMapping]  # self.input_data is where input data is stored if stored_input_data is set
     parsed_data: Union[Mapping, MutableMapping]  # self.parsed_data is where parsed data is stored if stores_parsed_data is set
@@ -189,9 +189,9 @@ class CharDataSource:
         return "Data source of type " + self.dict_type + ": " + self.description
 
 
-class CharDataSourceDict(CharDataSource):
+class CharDataSourceDict(CharDataSourceBase):
     """
-    Wrapper for dicts (one for input data / one for parsed) -> CharDataSource. Used for testing only.
+    Wrapper for dicts (one for input data / one for parsed) -> CharDataSourceBase. Used for testing only.
     """
     dict_type = "Char data source dict"
     stores_input_data = True

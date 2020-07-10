@@ -9,14 +9,14 @@ the same mechanism and either go here or be imported from here.
 from .DBCharVersion import SimpleDBToDict
 from CharData.CharVersionConfig import CVConfig, BaseCVManager
 from .models import MANAGER_TYPE, ShortDictEntry, LongDictEntry, DictEntry
-from CharData import DataSources
+from CharData import DataSourceBase
 import logging
 from typing import TYPE_CHECKING, List
 
 
 logger = logging.getLogger('chargen.dbdatasources')
 
-class NaiveDBDataSource(DataSources.CharDataSource):
+class NaiveDBDataSource(DataSourceBase.CharDataSourceBase):
     dict_type = "ShortDB"
     stores_input_data = True
     stores_parsed_data = False
@@ -51,7 +51,7 @@ class LongEntryNaiveDBDataSource(NaiveDBDataSource):
     dict_type = "LongDB"
 
 class NaiveDBDataSourceManager(BaseCVManager):
-    def make_data_source(self, *, target: List['DataSources.CharDataSource']):
+    def make_data_source(self, *, target: List['DataSourceBase.CharDataSourceBase']):
         db_cv_pk = self.cv_config.db_char_version.pk  # Note that .db_char_version raises an error if misused.
 
         def prepend_db_data_sources(data_sources):

@@ -1,0 +1,11 @@
+Note: Files in this folder are ignored by pycharm.
+
+Dependencies:
+ply
+Django
+pytest ???
+Jinja2
+coverage (only for test coverage)
+
+TODO: Password restrictions?
+

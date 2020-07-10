@@ -1695,7 +1695,7 @@ lists<y:LabelModel><y:ErdAttributesNodeLabelModel/></y:LabelModel><y:ModelParame
                   <y:Geometry height="97.24374999999998" width="181.0" x="1902.3000000000002" y="-220.5578124999999"/>
                   <y:Fill color="#FFA0A0" color2="#FFB27F" transparent="false"/>
                   <y:BorderStyle color="#000000" type="line" width="1.0"/>
-                  <y:NodeLabel alignment="center" autoSizePolicy="content" backgroundColor="#FF6600" fontFamily="Dialog" fontSize="12" fontStyle="bold" hasLineColor="false" height="31.9375" horizontalTextPosition="center" iconTextGap="4" modelName="internal" modelPosition="t" textColor="#000000" verticalTextPosition="bottom" visible="true" width="113.857421875" x="33.5712890625" xml:space="preserve" y="4.0">CharDataSource
+                  <y:NodeLabel alignment="center" autoSizePolicy="content" backgroundColor="#FF6600" fontFamily="Dialog" fontSize="12" fontStyle="bold" hasLineColor="false" height="31.9375" horizontalTextPosition="center" iconTextGap="4" modelName="internal" modelPosition="t" textColor="#000000" verticalTextPosition="bottom" visible="true" width="113.857421875" x="33.5712890625" xml:space="preserve" y="4.0">CharDataSourceBase
 (Abstract)</y:NodeLabel>
                   <y:NodeLabel alignment="left" autoSizePolicy="content" configuration="com.yworks.entityRelationship.label.attributes" fontFamily="Dialog" fontSize="12" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="45.90625" horizontalTextPosition="center" iconTextGap="4" modelName="custom" textColor="#000000" verticalTextPosition="top" visible="true" width="161.365234375" x="2.0" xml:space="preserve" y="43.9375">provides dict-like  access
 to data source for 

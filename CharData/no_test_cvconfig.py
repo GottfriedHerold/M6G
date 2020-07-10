@@ -1,7 +1,7 @@
 from .CharVersionConfig import CVConfig, BaseCVManager
 from typing import Iterable, TYPE_CHECKING
 if TYPE_CHECKING:
-    from .DataSources import CharDataSource
+    from .DataSourceBase import CharDataSourceBase
 
 def test_cv_config():
 
@@ -34,7 +34,7 @@ def test_cv_config():
             if self.id == 1:
                 self.log.append(50)
 
-        def get_data_sources(self) -> Iterable['CharDataSource']:
+        def get_data_sources(self) -> Iterable['CharDataSourceBase']:
             if self.id == 2:
                 self.cv_config.add_to_front_of_post_process_queue(lambda l: l+[10])
                 self.cv_config.add_to_front_of_post_process_queue(self.make_append_log(1000))

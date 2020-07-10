@@ -28,6 +28,7 @@ class EditModes(IntEnum):
     def allowed_reference_targets(cls):
         return [cls.NORMAL]
 
+
 ALLOWED_REFERENCE_TARGETS: Final = [EditModes.NORMAL]
 
 # For Django

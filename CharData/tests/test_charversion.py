@@ -1,4 +1,4 @@
-import CharData.DataSources
+import CharData.DataSourceBase
 from CharData import BaseCharVersion
 import unittest
 
@@ -6,23 +6,23 @@ import unittest
 class TestBaseCharVersion(unittest.TestCase):
 
     def test_charversion_utils(self):
-        list_1 = CharData.DataSources.CharDataSourceDict()
+        list_1 = CharData.DataSourceBase.CharDataSourceDict()
         list_1.description = "desc1"
         list_1.dict_type = "typeA"
-        list_2 = CharData.DataSources.CharDataSourceDict()
+        list_2 = CharData.DataSourceBase.CharDataSourceDict()
         list_2.description = "desc2"
         list_2.dict_type = "typeA"
-        list_3 = CharData.DataSources.CharDataSourceDict()
+        list_3 = CharData.DataSourceBase.CharDataSourceDict()
         list_3.description = "desc3"
         list_3.dict_type = "typeB"
-        list_4 = CharData.DataSources.CharDataSourceDict()
+        list_4 = CharData.DataSourceBase.CharDataSourceDict()
         list_4.description = "desc4"
         list_4.dict_type = "typeB"
         list_4.default_write = True
-        list_5 = CharData.DataSources.CharDataSourceDict()
+        list_5 = CharData.DataSourceBase.CharDataSourceDict()
         list_5.description = "desc_generic"
         list_5.dict_type = "type_generic"
-        list_6 = CharData.DataSources.CharDataSourceDict()
+        list_6 = CharData.DataSourceBase.CharDataSourceDict()
         list_6.description = "desc_generic"
         list_6.dict_type = "type_generic"
 
@@ -39,7 +39,7 @@ class TestBaseCharVersion(unittest.TestCase):
         cv.set_input("y", "2", target_type="typeB")
         assert list_3["y"] == 2
 
-        class OnlyParsed(CharData.DataSources.CharDataSource):
+        class OnlyParsed(CharData.DataSourceBase.CharDataSourceBase):
             stores_input_data = False
             stores_parsed_data = True
 

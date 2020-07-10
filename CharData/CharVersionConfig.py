@@ -5,7 +5,7 @@ from collections import deque
 # from functools import wraps
 if TYPE_CHECKING:
     from .BaseCharVersion import BaseCharVersion
-    from .DataSources import CharDataSource
+    from .DataSourceBase import CharDataSourceBase
     from DBInterface.models import CharVersionModel
     # from DBInterface.DBCharVersion import DBCharVersion
 import logging
@@ -399,7 +399,7 @@ class CVConfig:
         for manager in self._managers:
             self._data_source_descriptions += manager.data_source_descriptions
 
-    def make_data_sources(self) -> List['CharDataSource']:
+    def make_data_sources(self) -> List['CharDataSourceBase']:
         """
         Creates the lists of data_sources. Requires that setup_managers and setup_data_source_descriptions has been run.
         Data sources are created by querying managers. The order in which managers are queried is determined by
@@ -535,10 +535,10 @@ class BaseCVManager:
         """
         pass
 
-    def get_data_sources(self, description: DataSourceDescription) -> Iterable['CharDataSource']:
+    def get_data_sources(self, description: DataSourceDescription) -> Iterable['CharDataSourceBase']:
         return []
 
-    def make_data_source(self, *, description: DataSourceDescription, target_list: List['CharDataSource']) -> None:
+    def make_data_source(self, *, description: DataSourceDescription, target_list: List['CharDataSourceBase']) -> None:
         target_list.extend(self.get_data_sources(description))
 
     def validate_config(self):

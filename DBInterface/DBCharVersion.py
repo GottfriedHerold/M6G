@@ -7,7 +7,7 @@ from django.core.exceptions import ObjectDoesNotExist
 
 logger = logging.getLogger("chargen.db_char_version")
 
-# class GenericDBDataSource(CharDataSource):
+# class GenericDBDataSource(CharDataSourceBase):
 #    dict_manager: MANAGER_TYPE[DictEntry]  # to be set to the appropriate models.objects Manager
 
 class DBCharVersion(BaseCharVersion):

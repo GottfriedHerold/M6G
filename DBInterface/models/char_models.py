@@ -324,7 +324,7 @@ class CharVersionModel(models.Model):
             new_version.edit_mode = new_config.edit_mode
             new_version.edit_counter += 1
             new_version.save()
-            CVReferencesModel.check_reference_validity_for_char_version(new_version)
+            new_version.check_reference_validity()
         return new_version
 
     def may_be_read_by(self, *, user: CGUser) -> bool:
@@ -334,6 +334,9 @@ class CharVersionModel(models.Model):
     def may_be_written_by(self, *, user: CGUser) -> bool:
         from .permission_models import CharUsers
         return CharUsers.user_may_write(char=self, user=user)
+
+    def check_reference_validity(self):
+        CVReferencesModel.check_reference_validity_for_char_version(char_version=self)
 
 class CVReferencesModel(models.Model):
     """
