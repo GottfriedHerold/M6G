@@ -17,13 +17,13 @@ class TestChars(django.test.TestCase):
         char1.validate_treeness()
         char2.validate_treeness()
 
-        with self.assertRaises(BaseException):
+        with self.assertRaises(Exception):
             with transaction.atomic():
                 cv: CharVersionModel = self.cvs['cv1_1']
                 cv.parent = cv
                 cv.save()
                 char1.validate_treeness()
-        with self.assertRaises(BaseException):
+        with self.assertRaises(Exception):
             with transaction.atomic():
                 cv1: CharVersionModel = self.cvs['cv1_1']
                 cv4: CharVersionModel = self.cvs['cv1_4']
@@ -48,10 +48,10 @@ class TestCharVersions(django.test.TestCase):
     def test_dummy(self):
         cv1 = CharVersionModel.make_dummy(10)
         cv2 = CharVersionModel.make_dummy(1)
-        with self.assertRaises(BaseException):
+        with self.assertRaises(Exception):
             with transaction.atomic():
                 cv1.save()
-        with self.assertRaises(BaseException):
+        with self.assertRaises(Exception):
             with transaction.atomic():
                 cv2.save()
 

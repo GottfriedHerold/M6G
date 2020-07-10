@@ -2,7 +2,8 @@ from enum import Enum, auto
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .CharVersionConfig import BaseCVManager
+    from .BaseCVManager import BaseCVManager
+
 
 class DataSourceDescription:
     """
@@ -28,5 +29,5 @@ class DataSourceDescription:
     priority: Optional[int] = None
     manager: 'BaseCVManager'
 
-    def make_and_append(self, target_list: list) -> None:
+    def make_and_append_to(self, target_list: list) -> None:
         self.manager.make_data_source(description=self, target_list=target_list)

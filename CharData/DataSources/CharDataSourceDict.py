@@ -2,7 +2,7 @@
 This file defines the CharDataSourceDict class: A simple char data source class that just wraps two dicts.
 """
 
-from CharData.DataSources.CharDataSourceBase import CharDataSourceBase
+from.CharDataSourceBase import CharDataSourceBase
 
 
 class CharDataSourceDict(CharDataSourceBase):
@@ -13,6 +13,6 @@ class CharDataSourceDict(CharDataSourceBase):
     stores_input_data = True
     stores_parsed_data = True
 
-    def __init__(self):
+    def __init__(self, /):
         self.input_data = dict()
         self.parsed_data = dict()

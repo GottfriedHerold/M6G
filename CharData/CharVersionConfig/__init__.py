@@ -1,4 +1,4 @@
-from .CharVersionConfig import CVConfig, EMPTY_RECIPE
+from .CharVersionConfig import CVConfig
 from .EditModes import EditModes
 from .DataSourceDescription import DataSourceDescription
-from .types import PythonConfigRecipe
+from .types import PythonConfigRecipe, EMPTY_RECIPE

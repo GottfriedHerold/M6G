@@ -191,7 +191,7 @@ class CharDataSourceBase:
         for key, val in key_vals.items():
             self.set_input(key, val)
 
-    def __str__(self) -> str:
+    def __str__(self, /) -> str:
         return "Data source of type " + self.dict_type + ": " + self.description
 
 

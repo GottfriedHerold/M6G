@@ -3,20 +3,23 @@ import typing
 import logging
 import warnings
 from importlib import import_module
-from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Optional, List, Iterable, Deque, Final
+from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Optional, List, Deque
 from collections import deque
 
-from CharData.CharVersionConfig.DataSourceDescription import DataSourceDescription
-from CharData.CharVersionConfig.EditModes import EditModes
-from CharData.CharVersionConfig.types import validate_strict_JSON_serializability, PythonConfigRecipe, PythonConfigRecipeDict,\
-     ManagerInstructionsDictBase, ManagerInstructions, ManagerInstructionsDict, ManagerInstructionGroups
+from django.db import transaction
+
+from .EditModes import EditModes
+from .types import validate_strict_JSON_serializability, PythonConfigRecipe, PythonConfigRecipeDict, \
+    ManagerInstructionGroups
 
 if TYPE_CHECKING:
     from CharData.BaseCharVersion import BaseCharVersion
     from CharData.DataSources.CharDataSourceBase import CharDataSourceBase
     from DBInterface.models import CharVersionModel
     # from DBInterface.DBCharVersion import DBCharVersion
-from django.db import transaction
+    from .BaseCVManager import BaseCVManager
+    from .DataSourceDescription import DataSourceDescription
+
 
 config_logger = logging.getLogger('chargen.CVConfig')
 
@@ -52,7 +55,7 @@ class CVConfig:
     # subclassing from BaseCVManager via a __init_subclass__ hook.
     known_types: ClassVar[Dict[str, Callable[..., 'BaseCVManager']]] = {}  # stores known type-identifiers and their callable.
 
-    _python_recipe: PythonConfigRecipe
+    _python_recipe: 'PythonConfigRecipe'
     _json_recipe: Optional[str]
 
     _edit_mode: EditModes  # enum type
@@ -64,12 +67,12 @@ class CVConfig:
     post_process_make_data_sources: Deque[Callable[[list], list]]
     post_process_validate: Deque[Callable[[], None]]
 
-    post_process_copy_config: Deque[Callable[[PythonConfigRecipe], None]]  # Not setup in init!
+    post_process_copy_config: Deque[Callable[['PythonConfigRecipe'], None]]  # Not setup in init!
 
-    _data_source_descriptions: Optional[List[DataSourceDescription]]
+    _data_source_descriptions: Optional[List['DataSourceDescription']]
     _data_sources: Optional[List['CharDataSourceBase']]
 
-    def __init__(self, *, from_python: PythonConfigRecipe = None, from_json: str = None,
+    def __init__(self, *, from_python: 'PythonConfigRecipe' = None, from_json: str = None,
                  validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = False,
                  char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None,
                  create: bool = False):
@@ -127,7 +130,7 @@ class CVConfig:
                 raise ValueError("validate_setup = True requires setup_managers = True")
             try:
                 self.validate_setup()
-            except BaseException:
+            except Exception:
                 config_logger.exception("Validation of CVConfig failed")
                 raise
 
@@ -141,7 +144,7 @@ class CVConfig:
         return self._managers
 
     @property
-    def data_source_descriptions(self, /) -> List[DataSourceDescription]:
+    def data_source_descriptions(self, /) -> List['DataSourceDescription']:
         """
         Get the list of data source descriptions. Requires the managers to have been set up before.
         """
@@ -182,7 +185,7 @@ class CVConfig:
         return self._json_recipe
 
     @property
-    def python_recipe(self, /) -> PythonConfigRecipe:
+    def python_recipe(self, /) -> 'PythonConfigRecipe':
         return self._python_recipe
 
     @property
@@ -207,16 +210,16 @@ class CVConfig:
             type_id = manager_instruction.type_id
             if type_id not in cls.known_types:
                 import_module(manager_instruction.module)
-            new_manager: BaseCVManager = cls.known_types[type_id](*manager_instruction.args, **manager_instruction.kwargs, cv_config=self, manager_instruction=manager_instruction)
-            if not isinstance(new_manager, BaseCVManager):
-                raise ValueError("Invalid manager: Not derived from BaseCVManager")
+            new_manager: 'BaseCVManager' = cls.known_types[type_id](*manager_instruction.args, **manager_instruction.kwargs, cv_config=self, manager_instruction=manager_instruction)
+            #  if not isinstance(new_manager, BaseCVManager):
+            #      raise ValueError("Invalid manager: Not derived from BaseCVManager")
             self._managers.append(new_manager)
         for manager in self.managers:
             manager.post_setup(create=create)
         while self.post_process_setup:
             self.post_process_setup.popleft()()
 
-    def setup_data_source_descriptions(self):
+    def setup_data_source_descriptions(self, /):
         """
         Sets up the list of data source descriptions.
         Called automatically upon access of data_source_descriptions
@@ -228,7 +231,7 @@ class CVConfig:
         for manager in self._managers:
             self._data_source_descriptions += manager.data_source_descriptions
 
-    def make_data_sources(self) -> List['CharDataSourceBase']:
+    def make_data_sources(self, /) -> List['CharDataSourceBase']:
         """
         Creates the lists of data_sources. Requires that setup_managers and setup_data_source_descriptions has been run.
         Data sources are created by querying managers. The order in which managers are queried is determined by
@@ -238,19 +241,19 @@ class CVConfig:
         assert self._data_sources is None
         self._data_sources: list = list()
         for data_source_description_index in self.data_source_order:
-            self.data_source_descriptions[data_source_description_index].make_and_append(target_list=self._data_sources)
+            self.data_source_descriptions[data_source_description_index].make_and_append_to(target_list=self._data_sources)
         while self.post_process_make_data_sources:
             self._data_sources = self.post_process_make_data_sources.popleft()(self._data_sources)
         return self._data_sources
 
     @property
-    def data_sources(self) -> List['CharDataSourceBase']:
+    def data_sources(self, /) -> List['CharDataSourceBase']:
         if self._data_sources is None:
             return self.make_data_sources()
         else:
             return self._data_sources
 
-    def validate_setup(self) -> None:
+    def validate_setup(self, /) -> None:
         """
         Run every managers validation method (which can access the full config).
         Intended to be run directly after setup_managers()
@@ -292,7 +295,7 @@ class CVConfig:
         return new_config
 
     @classmethod
-    def validate_syntax(cls, py: PythonConfigRecipe, /) -> None:
+    def validate_syntax(cls, py: 'PythonConfigRecipe', /) -> None:
         """
         (Type-)Checks whether the python recipe has the correct form. Indicates failure by raising an exception.
         """
@@ -327,7 +330,7 @@ class CVConfig:
             raise ValueError("Invalid CVConfig: data_source_order is not a permutation.", data_source_order_copy)
 
     @classmethod
-    def register(cls, type_id: str, creator: Callable, *, allow_overwrite: bool = False) -> None:
+    def register(cls, /, type_id: str, creator: Callable, *, allow_overwrite: bool = False) -> None:
         """
         Registers the callable (typically a class) creator with the given type_id. This then makes it possible to
         use this string as a type in recipes to create managers using the given creator.
@@ -346,110 +349,3 @@ class CVConfig:
         cls.known_types[type_id] = creator
         config_logger.info("Registered CV %s" % type_id)
 
-
-EMPTY_RECIPE_DICT: Final[PythonConfigRecipeDict] = {
-    'edit_mode': EditModes.NORMAL,
-    'data_source_order': [],
-    'managers': []
-}
-
-EMPTY_RECIPE: Final[PythonConfigRecipe] = PythonConfigRecipe.from_nested_dict(**EMPTY_RECIPE_DICT)
-
-
-class BaseCVManager:
-    """
-    Manager that does nothing. For testing and serves as base class.
-    """
-
-    # List of DataSourceDescriptions that is displayed to the user when this manager is present.
-    # CVConfig.data_source_order is a permutation of indices into the list of all data_source_descriptions.
-    # make_data_source is called for each data_source_description.
-    data_source_descriptions: List[DataSourceDescription] = []
-    # NOTE: Due to an __init_subclass__ hook that looks at __dict__, these do NOT get inherited to subclasses.
-    module: ClassVar[str]  # Set to cls.__module__ (after class creation).
-    type_id: ClassVar[str]  # Set to cls.__name__ (after class creation).
-
-    # Called manually for BaseCVManager itself.
-    def __init_subclass__(cls, module: str = None, type_id: str = None, register: bool = True, **kwargs):
-        super().__init_subclass__(**kwargs)
-        if module is not None:
-            if m:=cls.__dict__.get('module') is not None:
-                assert m == module
-            cls.module = module
-        if cls.__dict__.get('module') is None:
-            cls.module = cls.__module__
-
-        if type_id is not None:
-            if t:=cls.__dict__.get('type_id') is not None:
-                assert t == type_id
-            cls.type_id = type_id
-        if cls.__dict__.get('type_id') is None:
-            cls.type_id = cls.__name__
-        if register:
-            CVConfig.register(type_id=cls.type_id, creator=cls)
-
-    def __init__(self, /, *args, cv_config: CVConfig, manager_instruction: ManagerInstructions, **kwargs):
-        """
-        Called by CVConfig.setup_managers() to initialize the manager
-        :param cv_config: calling cv_config
-        :param manager_instruction: refers to the entry in the calling cv_config's python_recipe.managers that was responsible for creating this.
-        :param args: arbitrary arguments from the recipe.
-        :param kwargs: arbitrary kw-arguments from the recipe.
-        """
-        self.args = args
-        self.kwargs = kwargs
-        self.cv_config = cv_config
-        self.instructions = manager_instruction
-
-    @classmethod
-    def recipe_base_dict(cls) -> ManagerInstructionsDictBase:
-        """
-        This should be used in python recipes as {**CVManager.recipe_base(), ...} to set up type and module correctly.
-        """
-        ret: ManagerInstructionsDictBase = {'type_id': cls.type_id, 'module': cls.module}
-        return ret
-
-    def get_recipe_as_dict(self) -> ManagerInstructionsDict:
-        """
-        Used to re-create the arguments used to make this instance.
-        Is almost identical to self.instructions (except that 'args' / 'kwargs' / 'type' / 'module' is always present
-        and not defaulted)
-        """
-        return self.instructions.as_dict()
-
-    def copy_config(self, target_recipe: PythonConfigRecipe, /, *, transplant: bool, target_db: Optional['CharVersionModel']) -> None:
-        """
-        Called for each manager on the source CharVersion when the containing CharVersion is copied.
-        target_recipe is the python recipe for the new char with (new!) edit_mode and data_source_order already set.
-        Its target_recipe.managers is initally empty.
-        CVManager.copy_config is responsible for creating the corresponding entry in the target_recipe.
-        transplant indicates whether we copy to a new CharModel
-        target_db is the db entry of the new_char.
-
-        self.cv_config.post_process_copy_config is a deque of callables(new_py_recipe) that is called after all
-        copy_configs are run.
-
-        Both copy_config and the the deque's callables modify its target_recipe argument.
-        """
-        target_recipe.managers.append(self.instructions.make_copy())
-
-    def post_setup(self, create: bool = False) -> None:
-        """
-        Called after setup has finished for all managers
-        """
-        pass
-
-    def get_data_sources(self, /, description: DataSourceDescription) -> Iterable['CharDataSourceBase']:
-        return []
-
-    def make_data_source(self, *, description: DataSourceDescription, target_list: List['CharDataSourceBase']) -> None:
-        target_list.extend(self.get_data_sources(description))
-
-    def validate_config(self):
-        if self.instructions.module != type(self).module:
-            raise ValueError("CVConfig validation failed: Registered module differs from saved module. Did you forget to create a db migration after a file rename during code reorganization?")
-        if self.instructions.type_id != type(self).type_id:
-            raise ValueError("CVConfig validation failed: Registered type_id differs from saved type_id. Did you forget to create a db migration after a rename of a CVManager class?")
-
-
-BaseCVManager.__init_subclass__()  # BaseCVManager is a perfectly valid CVManager (that does absolutely nothing)

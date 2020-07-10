@@ -43,13 +43,12 @@
     (This means we allow None, bool, str, int as well as dicts and lists recursively built from that.
     Note that JSON is not able to distinguish object identity from equality, so with x=[], y=[], the difference between
     L1 = [x,x] and L2 = [x,y] is lost to JSON as well as references held to existing objects)
-    """
-
-
+"""
 import dataclasses
 # NOTE: dataclasses-json is not deemed mature enough, so we do everything manually
 from typing import TypedDict, Final, List
 from enum import Enum
+
 from .EditModes import EditModes
 
 # May be changed to dict!
@@ -78,7 +77,7 @@ class ManagerInstructions:
     kwargs: dict = dataclasses.field(default_factory=dict)
 
     @classmethod
-    def from_nested_dict(cls, group: str, **kwargs):
+    def from_nested_dict(cls, /, group: str, **kwargs):
         return cls(group=ManagerInstructionGroups(group), **kwargs)
 
     def as_dict(self, /) -> ManagerInstructionsDict:
@@ -100,7 +99,7 @@ class PythonConfigRecipe:
     managers: List[ManagerInstructions]
 
     @classmethod
-    def from_nested_dict(cls, edit_mode: int, data_source_order: List[int], managers: List[ManagerInstructionsDict]):
+    def from_nested_dict(cls, /, edit_mode: int, data_source_order: List[int], managers: List[ManagerInstructionsDict]):
         return cls(edit_mode=EditModes(edit_mode), data_source_order=data_source_order,
                    managers=list(map(lambda m_instruction_dict: ManagerInstructions.from_nested_dict(**m_instruction_dict), managers)))
 
@@ -129,3 +128,11 @@ def validate_strict_JSON_serializability(arg, /) -> None:
         return
     else:
         raise ValueError("Invalid CVConfig: Contains non-allowed python type")
+
+
+EMPTY_RECIPE_DICT: Final[PythonConfigRecipeDict] = {
+    'edit_mode': EditModes.NORMAL,
+    'data_source_order': [],
+    'managers': []
+}
+EMPTY_RECIPE: Final[PythonConfigRecipe] = PythonConfigRecipe.from_nested_dict(**EMPTY_RECIPE_DICT)

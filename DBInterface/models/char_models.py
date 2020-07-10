@@ -267,7 +267,7 @@ class CharVersionModel(models.Model):
                 owner.max_version += 1
                 owner.save()
                 CVReferencesModel.check_reference_validity_for_char_version(new_char_version)
-            except BaseException:
+            except Exception:
                 char_logger.exception("Failed to create char version")
                 raise
         return new_char_version
