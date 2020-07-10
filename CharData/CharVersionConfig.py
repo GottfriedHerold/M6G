@@ -1,6 +1,6 @@
 import json
 import typing
-from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Any, Optional, List, Iterable, Deque
+from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Any, Optional, List, Iterable, Deque, Final
 from collections import deque
 # from functools import wraps
 if TYPE_CHECKING:
@@ -117,7 +117,6 @@ class CVConfig:
     post_process_validate: Deque[Callable[[], None]]
 
     post_process_copy_config: Deque[Callable[[dict], None]]  # Not setup in init!
-
 
     _data_source_descriptions: Optional[List[DataSourceDescription]]
 
@@ -457,7 +456,8 @@ class CVConfig:
         new_config.validate_setup()
         return new_config
 
-EMPTY_RECIPE = {
+
+EMPTY_RECIPE: Final = {
     'edit_mode': EditModes.NORMAL,
     'data_source_order': [],
 }
@@ -472,6 +472,7 @@ class BaseCVManager:
     # CVConfig.data_source_order is a permutation of indices into the list of all data_source_descriptions.
     # make_data_source is called for each data_source_description.
     data_source_descriptions: List[DataSourceDescription] = []
+    # NOTE: Due to an __init_subclass__ hook, these do NOT get inherited to subclasses.
     module: ClassVar[str]  # Set to cls.__module__ (after class creation).
     type_id: ClassVar[str]  # Set to cls.__name__ (after class creation).
 

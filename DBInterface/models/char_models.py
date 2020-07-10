@@ -62,6 +62,7 @@ class CharModel(models.Model):
             new_char.save()  # need to save at this point, because recomputing permissions may reload from db.
             # TODO: This causes last_save and last_change to be before creation time (by a tiny amount)
             UserPermissionsForChar.objects.create(char=new_char, user=creator)
+        char_logger.info("User {creator} Created new char with name {name}".format(creator=creator, name=name))
         return new_char
 
     def create_root_char_version(self, *args, **kwargs) -> 'CharVersionModel':
@@ -96,7 +97,7 @@ class CharModel(models.Model):
         """
         cvs = list(CharVersionModel.objects.filter(owner=self))
         for cv in cvs:
-            if cv.parent.pk not in cvs:
+            if (cv.parent is not None) and cv.parent not in cvs:
                 raise IntegrityError("char version's parent's owner != owner")
         check_cvs: List[Optional[int]] = [None] * len(cvs)
         indices = range(len(cvs))
@@ -132,6 +133,10 @@ class CharVersionModel(models.Model):
 
     @property
     def name(self) -> str:
+        """
+        Given name of the character version. This is typically the name of the character.
+        :return:
+        """
         my_name = self.version_name
         if my_name:
             return str(my_name)
@@ -190,6 +195,14 @@ class CharVersionModel(models.Model):
     @property
     def edit_mode(self)->EditModes:
         return EditModes(self._edit_mode)
+
+    @property
+    def can_create_overwriter(self) -> bool:
+        """
+        Can we create a char version for overwriting it?
+        This is disallowed if other char versions refer to it.
+        """
+        return not self.references_to.exists()
 
     @edit_mode.setter
     def edit_mode(self, new_edit_mode: EditModes):
@@ -301,10 +314,12 @@ class CharVersionModel(models.Model):
             new_version.json_config = ""
             new_version.save()
             if overwrite:
-                CVReferencesModel.objects.create(source=new_version, target=parent, reason="Overwrite target",
+                if not parent.can_create_overwriter:
+                    raise ValueError("Cannot edit char for overwriting: Other versions of this char refer to it.")
+                CVReferencesModel.objects.create(source=new_version, target=parent, reason_str="Overwrite target",
                                                  ref_type=CVReferencesModel.ReferenceType.OVERWRITE.value)
-            parent_config: CVConfig(from_json=parent.json_config, validate_syntax=True, validate_setup=True, db_char_version=parent)
-            new_config: CVConfig = parent_config.copy_config(target_db=new_version, new_edit_mode=edit_mode, transplant=transplant)
+            parent_config = CVConfig(from_json=parent.json_config, validate_syntax=True, validate_setup=True, db_char_version=parent)
+            new_config = parent_config.copy_config(target_db=new_version, new_edit_mode=edit_mode, transplant=transplant)
             new_version.json_config = new_config.json_recipe
             new_version.edit_mode = new_config.edit_mode
             new_version.edit_counter += 1
@@ -353,6 +368,7 @@ class CVReferencesModel(models.Model):
         Indicates failure by raising an IntegrityError.
         """
         if self.source == self.target:
+            # Self-references would be doable, but they would require special handling and it's not worth the pain.
             raise IntegrityError("CharVersion reference to itself")
         if self.source.owner != self.target.owner:
             raise IntegrityError("CharVersion references only allowed with the same Char model")
@@ -361,6 +377,8 @@ class CVReferencesModel(models.Model):
         if self.ref_type == self.ReferenceType.OVERWRITE.value:
             if self.source.edit_mode.is_overwriter() is False:
                 raise IntegrityError("CharVersion references overwrite target, but but source has wrong type")
+            if type(self).objects.filter(target=self.target).count() != 1:
+                raise IntegrityError("CharVersion references overwrite target, but target has other references to it.")
 
     @classmethod
     def check_reference_validity_for_char_version(cls, char_version: CharVersionModel) -> None:
