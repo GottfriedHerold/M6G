@@ -57,7 +57,7 @@ class DBCharVersion(BaseCharVersion):
         return self._delay_saving
 
     @delay_saving.setter
-    def delay_saving(self, /, value: bool):
+    def delay_saving(self, /, value: bool) -> None:
         self._delay_saving = value
         if (not value) and self._needs_saving:
             self.save()
@@ -77,15 +77,15 @@ class DBCharVersion(BaseCharVersion):
         def bind_to_db(name: str, create_setter: bool = True) -> property:  # Used to bind attribute names of DBCharVersion to attributes of models.CharVersionModel via DBCharVersion._db_instance
             assert hasattr(CharVersionModel, name)
 
-            def getter(s: 'DBCharVersion'):
+            def getter(s: DBCharVersion, /):
                 return getattr(s._db_instance, name)
             doc = "attribute %s of DBCharVersion, bound to db" % name
 
-            def deleter(s: 'DBCharVersion'):
+            def deleter(s: DBCharVersion, /):
                 raise ValueError("Cannot delete attribute bound to db")
 
             if create_setter:
-                def setter(s: 'DBCharVersion', /, value):
+                def setter(s: DBCharVersion, value, /):
                     setattr(s._db_instance, name, value)
                     if s.delay_saving:
                         s._needs_saving = True
@@ -99,5 +99,5 @@ class DBCharVersion(BaseCharVersion):
     creation_time = _Meta.bind_to_db('creation_time')
     last_change = _Meta.bind_to_db('last_changed')
     description = _Meta.bind_to_db('description')
-    name = _Meta.bind_to_db('name', False)
+    name = _Meta.bind_to_db('name', create_setter=False)
     version_name = _Meta.bind_to_db('version_name')

@@ -28,7 +28,7 @@ class DataSourceDescription:
     # When adding a data source with priority != None, it will get its initial position within its block according to
     # priority.
     priority: Optional[int] = None
-    manager: 'BaseCVManager'
+    manager: BaseCVManager
 
     def make_and_append_to(self, target_list: list) -> None:
         self.manager.make_data_source(description=self, target_list=target_list)

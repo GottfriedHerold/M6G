@@ -1,7 +1,6 @@
 """
     Recurring regular expressions
 """
-
 from __future__ import annotations
 from typing import Final
 import re

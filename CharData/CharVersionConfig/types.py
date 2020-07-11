@@ -79,12 +79,13 @@ class ManagerInstructions:
 
     @classmethod
     def from_nested_dict(cls, /, group: str, **kwargs):
-        return cls(group=ManagerInstructionGroups(group), **kwargs)
+        return cls(group=ManagerInstructionGroups[group], **kwargs)
 
     def as_dict(self, /) -> ManagerInstructionsDict:
-        return dataclasses.asdict(self)
+        ret: ManagerInstructionsDict = {'type_id': self.type_id, 'module': self.module, 'args': self.args, 'kwargs': self.kwargs, 'group': self.group.name}
+        return ret
 
-    def make_copy(self, /) -> 'ManagerInstructions':
+    def make_copy(self, /) -> ManagerInstructions:
         return dataclasses.replace(self)
 
 
@@ -105,9 +106,10 @@ class PythonConfigRecipe:
                    managers=list(map(lambda m_instruction_dict: ManagerInstructions.from_nested_dict(**m_instruction_dict), managers)))
 
     def as_dict(self, /) -> PythonConfigRecipeDict:
-        return dataclasses.asdict(self)
+        return {'edit_mode': self.edit_mode.value, 'data_source_order': self.data_source_order,
+                'managers': list(map(lambda instruction: instruction.as_dict(), self.managers))}
 
-    def make_copy(self, /) -> 'PythonConfigRecipe':
+    def make_copy(self, /) -> PythonConfigRecipe:
         return dataclasses.replace(self)
 
 def validate_strict_JSON_serializability(arg, /) -> None:

@@ -56,26 +56,26 @@ class CVConfig:
     # subclassing from BaseCVManager via a __init_subclass__ hook.
     known_types: ClassVar[Dict[str, Callable[..., 'BaseCVManager']]] = {}  # stores known type-identifiers and their callable.
 
-    _python_recipe: 'PythonConfigRecipe'
+    _python_recipe: PythonConfigRecipe
     _json_recipe: Optional[str]
 
     _edit_mode: EditModes  # enum type
-    _managers: Optional[List['BaseCVManager']]
-    _char_version: Optional['BaseCharVersion']  # weak-ref?
-    _db_char_version: Optional['CharVersionModel']  # weak-ref?
+    _managers: Optional[List[BaseCVManager]]
+    _char_version: Optional[BaseCharVersion]  # weak-ref?
+    _db_char_version: Optional[CharVersionModel]  # weak-ref?
 
     post_process_setup: Deque[Callable[[], None]]
     post_process_make_data_sources: Deque[Callable[[list], list]]
     post_process_validate: Deque[Callable[[], None]]
 
-    post_process_copy_config: Deque[Callable[['PythonConfigRecipe'], None]]  # Not setup in init!
+    post_process_copy_config: Deque[Callable[[PythonConfigRecipe], None]]  # Not setup in init!
 
-    _data_source_descriptions: Optional[List['DataSourceDescription']]
-    _data_sources: Optional[List['CharDataSourceBase']]
+    _data_source_descriptions: Optional[List[DataSourceDescription]]
+    _data_sources: Optional[List[CharDataSourceBase]]
 
-    def __init__(self, *, from_python: 'PythonConfigRecipe' = None, from_json: str = None,
+    def __init__(self, *, from_python: PythonConfigRecipe = None, from_json: str = None,
                  validate_syntax: bool = False, setup_managers: bool = True, validate_setup: bool = False,
-                 char_version: 'BaseCharVersion' = None, db_char_version: 'CharVersionModel' = None,
+                 char_version: BaseCharVersion = None, db_char_version: CharVersionModel = None,
                  create: bool = False):
         """
         Creates a CharVersionConfig object from either a python dict or from json.
@@ -136,7 +136,7 @@ class CVConfig:
                 raise
 
     @property
-    def managers(self, /) -> List['BaseCVManager']:
+    def managers(self, /) -> List[BaseCVManager]:
         """
         Gets the list of managers. Note that we do not set up the managers on demand for now.
         """
@@ -145,7 +145,7 @@ class CVConfig:
         return self._managers
 
     @property
-    def data_source_descriptions(self, /) -> List['DataSourceDescription']:
+    def data_source_descriptions(self, /) -> List[DataSourceDescription]:
         """
         Get the list of data source descriptions. Requires the managers to have been set up before.
         """
@@ -155,7 +155,7 @@ class CVConfig:
         return self._data_source_descriptions
 
     @property
-    def char_version(self, /) -> 'BaseCharVersion':
+    def char_version(self, /) -> BaseCharVersion:
         """
         Gets the associated BaseCharVersion. This is needed, because some managers may need to access the CharVersion
         object.
@@ -165,7 +165,7 @@ class CVConfig:
         return self._char_version
 
     @char_version.setter
-    def char_version(self, new_value: 'BaseCharVersion', /) -> None:
+    def char_version(self, new_value: BaseCharVersion, /) -> None:
         """
         Setter for char_version. If the new char_version is a DBCharVersion, it automatically sets _db_char_version as well.
         """
@@ -174,7 +174,7 @@ class CVConfig:
             self._db_char_version = typing.cast('DBCharVersion', new_value).db_instance
 
     @property
-    def db_char_version(self, /) -> 'CharVersionModel':
+    def db_char_version(self, /) -> CharVersionModel:
         if self._db_char_version is None:
             raise ValueError("No db entry associated to this config.")
         return self._db_char_version
@@ -186,7 +186,7 @@ class CVConfig:
         return self._json_recipe
 
     @property
-    def python_recipe(self, /) -> 'PythonConfigRecipe':
+    def python_recipe(self, /) -> PythonConfigRecipe:
         return self._python_recipe
 
     @property
@@ -211,7 +211,7 @@ class CVConfig:
             type_id = manager_instruction.type_id
             if type_id not in cls.known_types:
                 import_module(manager_instruction.module)
-            new_manager: 'BaseCVManager' = cls.known_types[type_id](*manager_instruction.args, **manager_instruction.kwargs, cv_config=self, manager_instruction=manager_instruction)
+            new_manager: BaseCVManager = cls.known_types[type_id](*manager_instruction.args, **manager_instruction.kwargs, cv_config=self, manager_instruction=manager_instruction)
             #  if not isinstance(new_manager, BaseCVManager):
             #      raise ValueError("Invalid manager: Not derived from BaseCVManager")
             self._managers.append(new_manager)
@@ -232,7 +232,7 @@ class CVConfig:
         for manager in self._managers:
             self._data_source_descriptions += manager.data_source_descriptions
 
-    def make_data_sources(self, /) -> List['CharDataSourceBase']:
+    def make_data_sources(self, /) -> List[CharDataSourceBase]:
         """
         Creates the lists of data_sources. Requires that setup_managers and setup_data_source_descriptions has been run.
         Data sources are created by querying managers. The order in which managers are queried is determined by
@@ -248,7 +248,7 @@ class CVConfig:
         return self._data_sources
 
     @property
-    def data_sources(self, /) -> List['CharDataSourceBase']:
+    def data_sources(self, /) -> List[CharDataSourceBase]:
         if self._data_sources is None:
             return self.make_data_sources()
         else:
@@ -269,7 +269,7 @@ class CVConfig:
             raise ValueError("data_source_order is not a permutation of data_source_descriptions")
         return
 
-    def copy_config(self, *, target_db: Optional['CharVersionModel'], new_edit_mode: Optional[EditModes], transplant: bool) -> 'CVConfig':
+    def copy_config(self, *, target_db: Optional[CharVersionModel], new_edit_mode: Optional[EditModes], transplant: bool) -> CVConfig:
         """
         Creates a new CVConfig from the current one. target_db is the new CharVersionModel this is associated to.
         (target_db == None is for testing only)
@@ -296,7 +296,7 @@ class CVConfig:
         return new_config
 
     @classmethod
-    def validate_syntax(cls, py: 'PythonConfigRecipe', /) -> None:
+    def validate_syntax(cls, py: PythonConfigRecipe, /) -> None:
         """
         (Type-)Checks whether the python recipe has the correct form. Indicates failure by raising an exception.
         """

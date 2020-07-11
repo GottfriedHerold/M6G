@@ -26,19 +26,18 @@ do not edit the data source object directly, but through methods provided by Bas
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator, Final, TYPE_CHECKING
-# import logging
-# logger = logging.getLogger()
+from functools import wraps
+import itertools
 
 from . import Regexps
 from . import Parser
 from . import CharExceptions
 from . import ListBuffer
-from functools import wraps
-import itertools
+
+from .CharVersionConfig import CVConfig, PythonConfigRecipe
 
 if TYPE_CHECKING:
     from CharData.DataSources.CharDataSourceBase import CharDataSourceBase
-from .CharVersionConfig import CVConfig, PythonConfigRecipe
 
 
 _Ret_Type = TypeVar("_Ret_Type")
@@ -61,7 +60,7 @@ class BaseCharVersion:
 
     _config: Optional[CVConfig]
 
-    def __init__(self, *, data_sources: List['CharDataSourceBase'] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None, **kwargs):
+    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None, **kwargs):
         """
         Creates a BaseCharConfig. You should set either initial_list or config/py_config/json_config to initialize its lists (if config is set,
         it will use config to set up the lists). Note that config is the preferred way; the data_sources interface exists
@@ -133,7 +132,7 @@ class BaseCharVersion:
             """
 
             @wraps(action)  # I do not know how to adjust the type hints for _inner
-            def _inner(self: 'BaseCharVersion', *args, where: Union[int, None, 'CharDataSourceBase'] = None,
+            def _inner(self: BaseCharVersion, *args, where: Union[int, None, CharDataSourceBase] = None,
                        target_type: Optional[str] = None, target_desc: Optional[str] = None, **kwargs) -> _Ret_Type:
                 if where is None:
                     where = self.get_target_index(target_type, target_desc)
@@ -152,7 +151,7 @@ class BaseCharVersion:
             return _inner
 
     @property
-    def data_sources(self) -> List['CharDataSourceBase']:
+    def data_sources(self) -> List[CharDataSourceBase]:
         return self._data_sources
 
     @data_sources.setter
@@ -183,7 +182,7 @@ class BaseCharVersion:
         self._default_target = None
 
         for i in range(len(self.data_sources)):
-            list_i: 'CharDataSourceBase' = self.data_sources[i]
+            list_i: CharDataSourceBase = self.data_sources[i]
             if list_i.contains_restricted:
                 self._restricted_lists += [i]
             if list_i.contains_unrestricted:
@@ -219,7 +218,7 @@ class BaseCharVersion:
             else:
                 return next(filter(lambda data_source: data_source.dict_type == target_type and data_source.description == target_desc, self.data_sources), None)
 
-    def _get_index_from_list(self, source: 'CharDataSourceBase', /) -> int:
+    def _get_index_from_list(self, source: CharDataSourceBase, /) -> int:
         """
         Obtains i from source==self.lists[i]  (Note: We assume identity, not just equality)
         We assume that there are no duplicates, but if there were, returns the smallest index i s.t. self.lists[i] is source)
@@ -234,51 +233,51 @@ class BaseCharVersion:
     # These functions have keyword-only arguments where, target_type, target_desc rather than source.
 
     if TYPE_CHECKING:
-        def get_data_source(self, *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> 'CharDataSourceBase': ...
+        def get_data_source(self, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> CharDataSourceBase: ...
     else:
         @_Decorators.act_on_data_source
-        def get_data_source(self, source: 'CharDataSourceBase') -> 'CharDataSourceBase':
+        def get_data_source(self, source: CharDataSourceBase) -> CharDataSourceBase:
             return source
 
     if TYPE_CHECKING:
-        def set(self, key: str, value: object, *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+        def set(self, key: str, value: object, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
-        def set(self, source: 'CharDataSourceBase', key: str, value: object) -> None:
+        def set(self, source: CharDataSourceBase, key: str, value: object) -> None:
             source[key] = value
             self.last_change = datetime.now(timezone.utc)
 
     if TYPE_CHECKING:
-        def bulk_set(self, key_values: Dict[str, object], *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+        def bulk_set(self, key_values: Dict[str, object], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
-        def bulk_set(self, source: 'CharDataSourceBase', key_values: Dict[str, object]) -> None:
+        def bulk_set(self, source: CharDataSourceBase, key_values: Dict[str, object]) -> None:
             source.bulk_set_items(key_values)
             if key_values:
                 self.last_change = datetime.now(timezone.utc)
 
     if TYPE_CHECKING:
-        def set_input(self, key: str, value: str, *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+        def set_input(self, key: str, value: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
-        def set_input(self, source: 'CharDataSourceBase', key: str, value: str) -> None:
+        def set_input(self, source: CharDataSourceBase, key: str, value: str) -> None:
             source.set_input(key, value)
             self.last_change = datetime.now(timezone.utc)
 
     if TYPE_CHECKING:
-        def bulk_set_input(self, key_values: Dict[str, str], *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+        def bulk_set_input(self, key_values: Dict[str, str], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
-        def bulk_set_input(self, source: 'CharDataSourceBase', key_values: Dict[str, str]) -> None:
+        def bulk_set_input(self, source: CharDataSourceBase, key_values: Dict[str, str]) -> None:
             source.bulk_set_inputs(key_values)
             if key_values:
                 self.last_change = datetime.now(timezone.utc)
 
     if TYPE_CHECKING:
-        def delete(self, key: str, *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+        def delete(self, key: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
-        def delete(self, source: 'CharDataSourceBase', key: str) -> None:
+        def delete(self, source: CharDataSourceBase, key: str) -> None:
             """
             Deletes data_source[key] where data_source is specified by where / target_type / target_desc.
             Trying to deleting keys that do not exist in the data_source may trigger an exception, as per Python's default.
@@ -287,19 +286,19 @@ class BaseCharVersion:
             self.last_change = datetime.now(timezone.utc)
 
     if TYPE_CHECKING:
-        def bulk_delete(self, keys: Iterable[str], *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
+        def bulk_delete(self, keys: Iterable[str], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
-        def bulk_delete(self, source: 'CharDataSourceBase', keys: Iterable[str]) -> None:
+        def bulk_delete(self, source: CharDataSourceBase, keys: Iterable[str]) -> None:
             source.bulk_del_items(keys)
             if keys:
                 self.last_change = datetime.now(timezone.utc)
 
     if TYPE_CHECKING:
-        def get_input(self, key: str, default: str, *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> str: ...
+        def get_input(self, key: str, default: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> str: ...
     else:
         @_Decorators.act_on_data_source
-        def get_input(self, source: 'CharDataSourceBase', key: str, default: str = "") -> str:
+        def get_input(self, source: CharDataSourceBase, key: str, default: str = "") -> str:
             """
             Gets the input string that was used to set data_source[key] in the data_source specified by where / target_type / target_desc.
 
@@ -313,10 +312,10 @@ class BaseCharVersion:
             return source.get_input(key, default=default)
 
     if TYPE_CHECKING:
-        def bulk_get_inputs(self, keys: Iterable[str], default: str = "", *, where: Union['CharDataSourceBase', int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> Dict[str, str]: ...
+        def bulk_get_inputs(self, keys: Iterable[str], default: str = "", *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> Dict[str, str]: ...
     else:
         @_Decorators.act_on_data_source
-        def bulk_get_inputs(self, source: 'CharDataSourceBase', keys: Iterable[str], default: str = "") -> Dict[str, str]:
+        def bulk_get_inputs(self, source: CharDataSourceBase, keys: Iterable[str], default: str = "") -> Dict[str, str]:
             return source.bulk_get_inputs(keys, default=default)
 
     def find_query(self, query: str, *, indices: Optional[Iterable[int]] = None) -> Tuple[str, int]:
@@ -562,7 +561,7 @@ class BaseCharVersion:
             return ret  # to avoid setting ret[1] below
         else:
             raise ValueError("invalid value for 'action' in command given to bulk_process")
-        where: Union['CharDataSourceBase', None, int] = action.get('where')
+        where: Union[CharDataSourceBase, None, int] = action.get('where')
         if where is None:
             where = self.get_target_index(target_type=action.get('target_type'), target_desc=action.get('target_desc'))
         if not isinstance(where, int):

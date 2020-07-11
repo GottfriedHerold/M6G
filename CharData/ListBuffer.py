@@ -1,5 +1,3 @@
-from __future__ import annotations
-from typing import Iterable, Iterator, Union
 """
 Defines LazyIterList, an iterator buffer that allows to copy read-once iterables.
 Usage: for an iterable x, use
@@ -19,6 +17,10 @@ next(buf2) >> 3
 next(buf2) >> 4
 In all this, the original x has next called on it only 5 times. )
 """
+from __future__ import annotations
+from typing import Iterable, Iterator, Union
+
+
 
 class _IterBuffer:
     """

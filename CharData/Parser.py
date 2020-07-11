@@ -37,6 +37,7 @@
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Final
+from itertools import chain
 
 import ply.lex as lex
 import ply.yacc as yacc
@@ -44,9 +45,9 @@ import ply.yacc as yacc
 # The "normal" way is to set a docstring to the regexp, which (apart from all the qualms I have about giving
 # docstrings semantics) does not work if the regexp is an import such as re_key_any.
 from ply.lex import TOKEN
+
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
 from .CharExceptions import DataError, CGParseException, CGEvalException
-from itertools import chain
 
 # We need BaseCharVersion for type annotations. Unfortunately, this would create circular imports, which are OK only
 # while statically type-checking, but not otherwise.
