@@ -1,6 +1,7 @@
 """
 Defines data source classes that relate to the database.
 """
+from __future__ import annotations
 from DBInterface.models import MANAGER_TYPE, ShortDictEntry, LongDictEntry, DictEntry, SimpleDBToDict, CharVersionModel
 from CharData.DataSources import CharDataSourceBase
 import logging

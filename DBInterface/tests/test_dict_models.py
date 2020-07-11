@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .test_setup import setup_chars_and_versions
 import django.test
 from DBInterface.models import DictEntry, LongDictEntry, ShortDictEntry, SimpleDBToDict, CharVersionModel

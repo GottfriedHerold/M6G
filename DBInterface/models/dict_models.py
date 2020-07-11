@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections import abc
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -22,7 +23,7 @@ class DictEntry(models.Model):
     key: str = models.CharField(max_length=KEY_MAX_LENGTH, null=False, blank=False)
     value: str
 
-    objects: 'MANAGER_TYPE[DictEntry]'
+    objects: MANAGER_TYPE[DictEntry]
 
     @classmethod
     def as_dict_for(cls, char_version: CharVersionModel):

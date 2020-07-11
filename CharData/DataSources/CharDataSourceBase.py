@@ -3,6 +3,7 @@ This file implements the CharDataSourceBase class, which is the class all other 
 It implements the common interface and some sensible defaults that simplify deriving from it.
 """
 
+from __future__ import annotations
 from typing import Union, Mapping, MutableMapping, Any, Iterable, Dict, Optional, ClassVar
 
 from CharData import Parser, Regexps

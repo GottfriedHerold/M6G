@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Iterable, Iterator, Union
 """
 Defines LazyIterList, an iterator buffer that allows to copy read-once iterables.
@@ -25,7 +26,7 @@ class _IterBuffer:
     The logic what constitutes demand is in LazyIterList
     """
     __slots__ = ['base_iterator', 'values', 'computed_values', 'max_len']
-    def __init__(self, it: Iterable):
+    def __init__(self, it: Iterable, /):
         self.base_iterator: Iterator = iter(it)  # iterator that is buffered by self
         self.values: list = []  # buffer
         self.computed_values: int = 0  # length of self.values
@@ -41,7 +42,7 @@ class LazyIterList:
     lazy_iter_buffer: _IterBuffer
     position: int
 
-    def __init__(self, it: "Union[Iterable, LazyIterList]"):
+    def __init__(self, it: "Union[Iterable, LazyIterList]", /):
         try:  # If it is a LazyIterList, we can reuse the existing _IterBuffer for efficiency, we just need to adjust the position.
             self.lazy_iter_buffer = it.lazy_iter_buffer
             self.position = it.position
@@ -51,14 +52,14 @@ class LazyIterList:
             self.position = 0
         assert isinstance(self.lazy_iter_buffer, _IterBuffer)
 
-    def __iter__(self):  # Note that this does not return itself, but rather a copy of itself. Returning self would
+    def __iter__(self, /) -> 'LazyIterList':  # Note that this does not return itself, but rather a copy of itself. Returning self would
         # actually work due to how we use it, but copying is more consistent. Technically, we should have a separate
         # iterator / iterable class, but there is basically no need for that:
         # (The classes would have identical __dict__ and __init__, with the iterable having no __next__ and __iter__
         # returning a copy as an iterator, which in turn has an __iter__ returning itself and __next__ as below.)
         return LazyIterList(self)
 
-    def __next__(self):
+    def __next__(self, /):
         buf = self.lazy_iter_buffer
         if self.position < buf.computed_values:
             ret = buf.values[self.position]

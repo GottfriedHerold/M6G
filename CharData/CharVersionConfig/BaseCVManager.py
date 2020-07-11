@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import List, ClassVar, Optional, Iterable, TYPE_CHECKING
 
 from .CharVersionConfig import DataSourceDescription, CVConfig, PythonConfigRecipe

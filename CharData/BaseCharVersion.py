@@ -23,6 +23,7 @@ do not edit the data source object directly, but through methods provided by Bas
 (This is because BaseCharVersion might introduce caching in the future)
 """
 
+from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator, Final, TYPE_CHECKING
 # import logging

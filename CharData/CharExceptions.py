@@ -2,6 +2,7 @@
 This module defines our custom exceptions and error placeholders
 """
 
+from __future__ import annotations
 class CharGenException(Exception):
     pass
 

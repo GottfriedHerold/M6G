@@ -3,6 +3,7 @@ This file contains basic setup routines that populate the (test) database. Inten
 setUp functions from TestCase (django.test.TestCase, not unittest.TestCase)
 """
 
+from __future__ import annotations
 from django.db import transaction
 import django.test
 from DBInterface.models import CGUser, CGGroup, CharModel, CharVersionModel, CVReferencesModel

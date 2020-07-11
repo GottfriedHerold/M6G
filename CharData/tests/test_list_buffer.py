@@ -1,3 +1,4 @@
+from __future__ import annotations
 import unittest
 from CharData.ListBuffer import LazyIterList
 

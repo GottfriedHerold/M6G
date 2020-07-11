@@ -44,6 +44,7 @@
     Note that JSON is not able to distinguish object identity from equality, so with x=[], y=[], the difference between
     L1 = [x,x] and L2 = [x,y] is lost to JSON as well as references held to existing objects)
 """
+from __future__ import annotations
 import dataclasses
 # NOTE: dataclasses-json is not deemed mature enough, so we do everything manually
 from typing import TypedDict, Final, List

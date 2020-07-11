@@ -2,6 +2,8 @@
     Recurring regular expressions
 """
 
+from __future__ import annotations
+from typing import Final
 import re
 
 # re_key_any.fullmatch("abc.def") matches for valid keys used as paths in our databases
@@ -12,15 +14,15 @@ import re
 # M.group('tail') == ".c" is what follows the last such constituent (note that this is empty or begins with ".")
 # M.group('head') is everything up to tail (exclusive).
 # See test_regexps.py for examples
-re_key_regular = re.compile(r"(?:(?!__)[a-z_]+(?<!__))(?:\.(?!__)[a-z_]+(?<!__))*")
-re_key_any = re.compile(r"[a-z_]+(?:\.[a-z_]+)*")
-re_key_restrict = re.compile(r"(?P<head>(?:[a-z_]+\.)*(?P<restrict>(?:__[a-z_]+)|(?:[a-z_]+__)))(?P<tail>(?:\.(?!__)[a-z_]+(?<!__))*)")
+re_key_regular: Final = re.compile(r"(?:(?!__)[a-z_]+(?<!__))(?:\.(?!__)[a-z_]+(?<!__))*")
+re_key_any: Final = re.compile(r"[a-z_]+(?:\.[a-z_]+)*")
+re_key_restrict: Final = re.compile(r"(?P<head>(?:[a-z_]+\.)*(?P<restrict>(?:__[a-z_]+)|(?:[a-z_]+__)))(?P<tail>(?:\.(?!__)[a-z_]+(?<!__))*)")
 
 # regular expression for tokenizing CharGen Expression Language
-re_number_int = re.compile(r"[0-9]+")
-re_number_float = re.compile(r"[0-9]+[.][0-9]+")
+re_number_int: Final = re.compile(r"[0-9]+")
+re_number_float: Final = re.compile(r"[0-9]+[.][0-9]+")
 
-re_argname = re.compile(r"[$][a-z_]+")
-re_special_arg = re.compile(r"[$][A-Z][a-zA-Z_]*")
-re_funcname = re.compile(r"[A-Z]+")
-re_funcname_lowercased = re.compile(r"[a-z]+")
+re_argname: Final = re.compile(r"[$][a-z_]+")
+re_special_arg: Final = re.compile(r"[$][A-Z][a-zA-Z_]*")
+re_funcname: Final = re.compile(r"[A-Z]+")
+re_funcname_lowercased: Final = re.compile(r"[a-z]+")

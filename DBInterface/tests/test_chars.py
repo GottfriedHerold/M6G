@@ -1,3 +1,4 @@
+from __future__ import annotations
 from django.db import transaction
 import django.test
 from DBInterface.models import CharModel, CharVersionModel

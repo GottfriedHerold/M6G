@@ -1,3 +1,4 @@
+from __future__ import annotations
 from CharData.DataSources import CharDataSourceDict, CharDataSourceBase
 from CharData import BaseCharVersion
 import unittest

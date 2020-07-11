@@ -1,3 +1,4 @@
+from __future__ import annotations
 from CharData import Parser
 from CharData import BaseCharVersion
 from CharData import CharExceptions

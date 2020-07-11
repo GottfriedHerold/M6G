@@ -1,3 +1,4 @@
+from __future__ import annotations
 from django.apps import AppConfig
 import logging
 logger = logging.getLogger('chargen.database.apps')

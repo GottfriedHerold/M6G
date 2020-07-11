@@ -1,3 +1,4 @@
+from __future__ import annotations
 from CharData.BaseCharVersion import BaseCharVersion
 from .models import CharVersionModel
 import contextlib

@@ -9,6 +9,7 @@ Document then in the relevant models.
 """
 
 
+from __future__ import annotations
 import logging
 from django.db.models.signals import post_save, pre_delete, m2m_changed
 from .models import CGUser, CharVersionModel, GroupPermissionsForChar, UserPermissionsForChar, CharUsers

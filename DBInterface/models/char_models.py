@@ -1,3 +1,4 @@
+from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING, List
 import logging
@@ -47,7 +48,7 @@ class CharModel(models.Model):
         return str(self.name)
 
     @classmethod
-    def create_char(cls, name: str, creator: CGUser, *, description: str = "") -> 'CharModel':
+    def create_char(cls, name: str, creator: CGUser, *, description: str = "") -> CharModel:
         """
         Creates a new char with the given name and description.
         The creator is recorded as the creator and given read/write permissions.

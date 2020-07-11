@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import TypeVar, Generic, Iterator, Final
 
 from django.db import models

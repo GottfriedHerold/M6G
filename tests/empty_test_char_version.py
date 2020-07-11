@@ -1,6 +1,7 @@
 """
 This file provides an empty BaseCharVersion that acts as a test fixture.
 """
+from __future__ import annotations
 import CharData.DataSources.CharDataSourceDict
 import CharData.DataSources.CharDataSourceBase
 from CharData import BaseCharVersion

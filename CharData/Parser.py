@@ -35,6 +35,7 @@
 # Concrete convenience functions will probably be added as one writes database-entries for a given set of RPG rules to
 # actually match demand.
 
+from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Final
 
 import ply.lex as lex
@@ -164,21 +165,21 @@ tokens: Final = [
 
 
 # noinspection PySingleQuotedDocstring
-def t_STRING(token):  # strings delimited by either ' or " (left and right delimeters must match)
+def t_STRING(token, /):  # strings delimited by either ' or " (left and right delimeters must match)
     r"(?:'[^']*')|" r'(?:"[^"]*")'  # Allow either ' or " as delimeters (Python-like)
     token.value = token.value[1:-1]  # strip the quotation marks already at the lexer stage
     return token
 
 
 @TOKEN(re_number_float.pattern)  # floating numbers with a .
-def t_FLOAT(token):
+def t_FLOAT(token, /):
     token.value = float(token.value)
     return token
 
 
 # This must come after t_FLOAT (so that e.g. the prefix "5" of 5.4 is not tokenized as an int)
 @TOKEN(re_number_int.pattern)  # integers
-def t_INT(token):
+def t_INT(token, /):
     token.value = int(token.value)
     return token
 
@@ -193,7 +194,7 @@ def t_INT(token):
 # A and b. This way we get an error "Did not recognize string Ab" instead of a mis-parse or a confusing error.
 # Note that no tokens of actual type "WORD" exist: we always overwrite token.type
 # noinspection PySingleQuotedDocstring
-def t_WORD(token):
+def t_WORD(token, /):
     r"[$]?[a-z._A-Z]+"  # We match any combination of letters, dots and underscores that optionally starts with $
     if token.value in core_constants:
         token.type = 'CORECONSTANT'
@@ -223,7 +224,7 @@ def t_WORD(token):
 
 
 # This is called by PLY.lex in case of tokenizer errors, i.e. when no rule matches a prefix of the remaining input.
-def t_error(token):
+def t_error(token, /):
     # for now, sets the remaining input string as empty: we are done parsing.
     # Otherwise, we risk an endless loop if the exception is handled and parsing continues.
     token.lexer.input("")
@@ -317,7 +318,7 @@ class AST:
         else:
             self.needs_env = needs_env
 
-    def __str__(self):  # Debug only, may be overridden in leaf nodes. Note that self.typedesc is always overridden.
+    def __str__(self, /):  # Debug only, may be overridden in leaf nodes. Note that self.typedesc is always overridden.
         return self.typedesc + '[' + ", ".join([str(x) for x in self.child]) + ']'
 
     def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
@@ -352,7 +353,7 @@ class AST_BinOp(AST):
         return self.eval_fun(left, right)
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         raise NotImplementedError()  # pure virtual
 
 
@@ -362,7 +363,7 @@ class AST_Sum(AST_BinOp):
     typedesc = '+'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left + right
 
 
@@ -370,7 +371,7 @@ class AST_Sub(AST_BinOp):
     typedesc = '-'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left - right
 
 
@@ -378,7 +379,7 @@ class AST_Mult(AST_BinOp):
     typedesc = '*'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left * right
 
 
@@ -386,7 +387,7 @@ class AST_Div(AST_BinOp):
     typedesc = '/'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left / right
 
 
@@ -394,7 +395,7 @@ class AST_IDiv(AST_BinOp):
     typedesc = '//'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left // right
 
 
@@ -402,7 +403,7 @@ class AST_Mod(AST_BinOp):
     typedesc = '%'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left % right
 
 
@@ -410,7 +411,7 @@ class AST_Equals(AST_BinOp):
     typedesc = '=='
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left == right
 
 
@@ -418,7 +419,7 @@ class AST_NEquals(AST_BinOp):
     typedesc = '!='
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left != right
 
 
@@ -426,7 +427,7 @@ class AST_GTE(AST_BinOp):
     typedesc = '>='
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left >= right
 
 
@@ -434,7 +435,7 @@ class AST_GT(AST_BinOp):
     typedesc = '>'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left > right
 
 
@@ -442,7 +443,7 @@ class AST_LTE(AST_BinOp):
     typedesc = '<='
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left <= right
 
 
@@ -450,7 +451,7 @@ class AST_LT(AST_BinOp):
     typedesc = '<'
 
     @staticmethod
-    def eval_fun(left, right):
+    def eval_fun(left, right, /):
         return left < right
 
 
@@ -459,7 +460,7 @@ class AST_GetItem(AST_BinOp):
     typedesc = 'GetItem'
 
     @staticmethod
-    def eval_fun(container, index):
+    def eval_fun(container, index, /):
         return container[index]
 
 
@@ -517,11 +518,11 @@ class AST_Literal(AST):
     typedesc = 'Literal'
     needs_env = _EMPTYSET  # every object has this set as well, actually.
 
-    def __init__(self, val):
+    def __init__(self, val, /):
         super().__init__(needs_env=self.__class__.needs_env)
         self.value = val
 
-    def __str__(self):
+    def __str__(self, /):
         return self.typedesc + '(' + str(self.value) + ')'
 
     # noinspection PyUnusedLocal
@@ -536,11 +537,11 @@ class AST_Lookup(AST):
     typedesc = 'Lookup'
     needs_env = _EMPTYSET  # every object has this as well.
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, /):
         super().__init__(needs_env=self.__class__.needs_env)
         self.name = name
 
-    def __str__(self):
+    def __str__(self, /):
         return self.typedesc + '(' + str(self.name) + ')'
 
     def eval_ast(self, data_list, context):
@@ -554,7 +555,7 @@ class AST_IndirectLookup(AST):
     typedesc = 'Indirect Lookup'
     needs_env = _EMPTYSET
 
-    def __init__(self, arg: AST):
+    def __init__(self, arg: AST, /):
         assert isinstance(arg, AST)
         super().__init__(needs_env=self.__class__.needs_env)
         self.indirect_arg = arg
@@ -578,15 +579,15 @@ class AST_Funcname(AST):
     typedesc = 'Function Name'
     needs_env = _EMPTYSET  # set in every object
 
-    def __init__(self, funcname: str):
+    def __init__(self, function_name: str, /):
         super().__init__(needs_env=self.__class__.needs_env)
-        self.funcname = funcname
+        self.function_name = function_name
 
-    def __str__(self):
-        return self.typedesc + '(' + str(self.funcname) + ')'
+    def __str__(self, /):
+        return self.typedesc + '(' + str(self.function_name) + ')'
 
     def eval_ast(self, data_list, context):
-        return data_list.get(self.funcname, locator=data_list.find_function(self.funcname.lower()))
+        return data_list.get(self.function_name, locator=data_list.find_function(self.function_name.lower()))
 
 # We might actually parse core_constants as Literals (of type e.g. function) rather than doing this at
 # the evaluation stage. Note, however, that this would make serializing ASTs more difficult.
@@ -594,11 +595,11 @@ class AST_CoreConstant(AST):
     typedesc = 'Core Constant'
     needs_env = _EMPTYSET
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, /):
         super().__init__(needs_env=self.__class__.needs_env)
         self.name = name
 
-    def __str__(self):
+    def __str__(self, /):
         return self.typedesc + '(' + str(self.name) + ')'
 
     def eval_ast(self, data_list, context):
@@ -611,11 +612,11 @@ class AST_Argname(AST):
     """
     typedesc = 'Argument'
 
-    def __init__(self, argname: str, needs_env=_EMPTYSET):
+    def __init__(self, argname: str, /, needs_env=_EMPTYSET):
         self.argname = argname
         super().__init__(needs_env=needs_env)
 
-    def __str__(self):
+    def __str__(self, /):
         return self.typedesc + '(' + str(self.argname) + ')'
 
     def eval_ast(self, data_list, context: dict):
@@ -637,7 +638,7 @@ class AST_Auto(AST):
     """
     typedesc = 'Auto'
 
-    def __init__(self, queryname: str):
+    def __init__(self, /, queryname: str):
         super().__init__(needs_env={CONTINUE_LOOKUP, queryname})
         self.queryname = queryname
 
@@ -847,13 +848,13 @@ precedence = (
 
 
 # noinspection PyUnusedLocal
-def p_error(p):
+def p_error(p, /):
     raise CGParseException
 
 
 # root_expression serves as a hook for "done with parsing". This does not actually create an extra tree node.
 # noinspection PySingleQuotedDocstring
-def p_root(p):
+def p_root(p, /):
     "root_expression : expression"
     p[0] = p[1]
     if not p[0].needs_env <= _ALLOWED_SPECIAL_ARGS:  # <= means subset here.
@@ -861,20 +862,20 @@ def p_root(p):
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_bracket(p):
+def p_expression_bracket(p, /):
     "expression : '(' expression ')' "
     p[0] = p[2]
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_literal(p):
+def p_expression_literal(p, /):
     """expression : STRING
                   | FLOAT
                   | INT"""
     p[0] = AST_Literal(p[1])
 
 # noinspection PySingleQuotedDocstring
-def p_coreconstant(p):
+def p_coreconstant(p, /):
     "expression : CORECONSTANT"
     p[0] = AST_CoreConstant(p[1])
 
@@ -891,139 +892,139 @@ def p_coreconstant(p):
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_sum(p):
+def p_expression_sum(p, /):
     "expression : expression '+' expression"
     p[0] = AST_Sum(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_sub(p):
+def p_expression_sub(p, /):
     "expression : expression '-' expression"
     p[0] = AST_Sub(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_mult(p):
+def p_expression_mult(p, /):
     "expression : expression '*' expression"
     p[0] = AST_Mult(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_div(p):
+def p_expression_div(p, /):
     "expression : expression '/' expression"
     p[0] = AST_Div(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_idiv(p):
+def p_expression_idiv(p, /):
     "expression : expression IDIV expression"
     p[0] = AST_IDiv(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_modulo(p):
+def p_expression_modulo(p, /):
     "expression : expression '%' expression"
     p[0] = AST_Mod(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_equals(p):
+def p_expression_equals(p, /):
     "expression : expression EQUALS expression"
     p[0] = AST_Equals(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_nequals(p):
+def p_expression_nequals(p, /):
     "expression : expression NEQUALS expression"
     p[0] = AST_NEquals(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_gt(p):
+def p_expression_gt(p, /):
     "expression : expression '>' expression"
     p[0] = AST_GT(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_gte(p):
+def p_expression_gte(p, /):
     "expression : expression GTE expression"
     p[0] = AST_GTE(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_lt(p):
+def p_expression_lt(p, /):
     "expression : expression '<' expression"
     p[0] = AST_LT(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_lte(p):
+def p_expression_lte(p, /):
     "expression : expression LTE expression"
     p[0] = AST_LTE(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_and(p):
+def p_expression_and(p, /):
     "expression : expression AND expression"
     p[0] = AST_And(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_or(p):
+def p_expression_or(p, /):
     "expression : expression OR expression"
     p[0] = AST_Or(p[1], p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_not(p):
+def p_expression_not(p, /):
     "expression : NOT expression"
     p[0] = AST_Not(p[2])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_cond(p):
+def p_expression_cond(p, /):
     "expression : COND '(' expression ',' expression ',' expression ')'"
     p[0] = AST_Cond(p[3], p[5], p[7])
 
 
 #noinspection PySingleQuotedDocstring
-def p_expression_cond_if_then_else(p):
+def p_expression_cond_if_then_else(p, /):
      "expression : IF expression THEN expression ELSE expression"
      p[0] = AST_Cond(p[2], p[4], p[6])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_funname(p):
+def p_expression_funname(p, /):
     "expression : FUNCNAME"
     p[0] = AST_Funcname(p[1])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_name(p):
+def p_expression_name(p, /):
     "expression : LOOKUP"
     p[0] = AST_Lookup(p[1])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_get(p):
+def p_expression_get(p, /):
     "expression : GET '(' expression ')'"
     p[0] = AST_IndirectLookup(p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_variable(p):
+def p_expression_variable(p, /):
     "expression : ARGNAME"
     p[0] = AST_Argname(p[1], needs_env=frozenset({p[1]}))
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_specialarg(p):
+def p_expression_specialarg(p, /):
     "expression : SPECIALARG"
     p[0] = AST_Argname(p[1], needs_env=frozenset({p[1]}))
 
 
 # noinspection PySingleQuotedDocstring
-def p_expression_auto(p):
+def p_expression_auto(p, /):
     "expression : AUTO"
     p[0] = AST_Auto(p[1])
 
@@ -1043,21 +1044,21 @@ def p_expression_auto(p):
 # p[0].typedesc += "..." would actually work and create an instance variable because python is weird.
 
 # types of arguments appearing in function calls f(...)
-_FUNARG_EXP = 'expression'  # f(x)
-_FUNARG_STAREXP = '*expression'  # f(*list)
-_FUNARG_STARSTAREXP = '**expression'  # f(**dict)
-_FUNARG_NAMEVAL = 'named argument'  # f(name = x)
+_FUNARG_EXP: Final = 'expression'  # f(x)
+_FUNARG_STAREXP: Final = '*expression'  # f(*list)
+_FUNARG_STARSTAREXP: Final = '**expression'  # f(**dict)
+_FUNARG_NAMEVAL: Final = 'named argument'  # f(name = x)
 
 
 # noinspection PySingleQuotedDocstring
-def p_argument_exp(p):
+def p_argument_exp(p, /):
     "argument : expression"
     p[0] = p[1]
     p[0].argtype = _FUNARG_EXP
 
 
 # noinspection PySingleQuotedDocstring
-def p_argument_listexp(p):
+def p_argument_listexp(p, /):
     "argument : '*' expression"
     p[0] = p[2]
     p[0].argtype = _FUNARG_STAREXP
@@ -1065,7 +1066,7 @@ def p_argument_listexp(p):
 
 
 # noinspection PySingleQuotedDocstring
-def p_argument_dictexp(p):
+def p_argument_dictexp(p, /):
     "argument : '*' '*' expression"
     p[0] = p[3]
     p[0].argtype = _FUNARG_STARSTAREXP
@@ -1073,7 +1074,7 @@ def p_argument_dictexp(p):
 
 
 # noinspection PySingleQuotedDocstring
-def p_argument_nameval(p):
+def p_argument_nameval(p, /):
     "argument : ARGNAME '=' expression"
     p[0] = p[3]
     p[0].argtype = _FUNARG_NAMEVAL
@@ -1081,14 +1082,14 @@ def p_argument_nameval(p):
     p[0].typedesc = p[0].typedesc + ' bound to ' + p[0].namebind  # += actually would work (which I find strange)
 
 # noinspection PySingleQuotedDocstring
-def p_argument_nameval_as_string(p):
+def p_argument_nameval_as_string(p, /):
     "argument : STRING '=' expression"
     p[0] = p[3]
     p[0].argtype = _FUNARG_NAMEVAL
     p[0].namebind = p[1]
     p[0].typedesc = p[0].typedesc + ' bound to ' + p[0].namebind
 
-def p_arglist(p):
+def p_arglist(p, /):
     """arglist :
                | arglist_nonempty
                | arglist_nonempty ','"""
@@ -1098,7 +1099,7 @@ def p_arglist(p):
         p[0] = p[1]
 
 
-def p_arglist_nonempty(p):
+def p_arglist_nonempty(p, /):
     """arglist_nonempty : argument
                         | arglist_nonempty ',' argument"""
     if len(p) == 2:
@@ -1106,7 +1107,7 @@ def p_arglist_nonempty(p):
     else:
         p[0] = p[1] + [p[3]]
 
-def p_expressionlist_nonempty(p):
+def p_expressionlist_nonempty(p, /):
     """expressionlist_nonempty : expression
                                | expressionlist_nonempty ',' expression"""
     if len(p) == 2:
@@ -1114,7 +1115,7 @@ def p_expressionlist_nonempty(p):
     else:
         p[0] = p[1] + [p[3]]
 
-def p_list(p):
+def p_list(p, /):
     """expression : '[' ']'
                   | '[' expressionlist_nonempty ']'
                   | '[' expressionlist_nonempty ',' ']'"""
@@ -1123,7 +1124,7 @@ def p_list(p):
     else:
         p[0] = AST_List(*p[2])
 
-def p_dictlist_nonempty(p):
+def p_dictlist_nonempty(p, /):
     """dictlist_nonempty : expression ':' expression
                          | dictlist_nonempty ',' expression ':' expression"""
     if len(p) == 4:
@@ -1131,7 +1132,7 @@ def p_dictlist_nonempty(p):
     else:
         p[0] = p[1] + [p[3], p[5]]
 
-def p_dict(p):
+def p_dict(p, /):
     """expression : '{' '}'
                   | '{' dictlist_nonempty '}'
                   | '{' dictlist_nonempty ',' '}'"""
@@ -1140,13 +1141,13 @@ def p_dict(p):
     else:
         p[0] = AST_Dict(*p[2])
 
-def p_set(p):
+def p_set(p, /):
     """expression : '{' expressionlist_nonempty '}'
                   | '{' expressionlist_nonempty ',' '}'"""
     p[0] = AST_Set(*p[2])
 
 # noinspection PySingleQuotedDocstring
-def p_function_call(p):
+def p_function_call(p, /):
     "expression : expression '(' arglist ')'"
     # keyword arguments must come after positional arguments :
     kwonly = False
@@ -1159,7 +1160,7 @@ def p_function_call(p):
 
 
 # noinspection PySingleQuotedDocstring
-def p_getitem(p):
+def p_getitem(p, /):
     "expression : expression '[' expression ']'"
     p[0] = AST_GetItem(p[1], p[3])
 
@@ -1172,36 +1173,36 @@ _ARGTYPE_KWARGS = 'Rest of Keyword Arguments'  # def (f**kwargs)
 
 
 # noinspection PySingleQuotedDocstring
-def p_declarg_name(p):
+def p_declarg_name(p, /):
     "declarg : ARGNAME"
     p[0] = (p[1], _ARGTYPE_NORMAL)
 
 
 # noinspection PySingleQuotedDocstring
-def p_declarg_defaulted_name(p):
+def p_declarg_defaulted_name(p, /):
     "declarg : ARGNAME '=' expression"
     p[0] = (p[1], _ARGTYPE_DEFAULT, p[3])
 
 
 # noinspection PySingleQuotedDocstring
-def p_declarg_pos_end(p):
+def p_declarg_pos_end(p, /):
     "declarg : '*'"
     p[0] = (None, _ARGTYPE_STAR)
 
 
 # noinspection PySingleQuotedDocstring
-def p_declarg_pos_rest(p):
+def p_declarg_pos_rest(p, /):
     "declarg : '*' ARGNAME"
     p[0] = (p[2], _ARGTYPE_STARARG)
 
 
 # noinspection PySingleQuotedDocstring
-def p_declarg_kw_rest(p):
+def p_declarg_kw_rest(p, /):
     "declarg : '*' '*' ARGNAME"
     p[0] = (p[3], _ARGTYPE_KWARGS)
 
 
-def p_declarg_list(p):
+def p_declarg_list(p, /):
     """declarglist :
                     | declarglist_nonempty"""
     if len(p) == 1:
@@ -1212,7 +1213,7 @@ def p_declarg_list(p):
         raise CGParseException("Duplicate argument used in function definition")
 
 
-def p_declarglist_nonempty(p):
+def p_declarglist_nonempty(p, /):
     """declarglist_nonempty : declarg
                             | declarglist_nonempty ',' declarg"""
     if len(p) == 2:
@@ -1222,7 +1223,7 @@ def p_declarglist_nonempty(p):
 
 
 # noinspection PySingleQuotedDocstring
-def p_functiondef(p):
+def p_functiondef(p, /):
     "expression : FUN '[' declarglist ']' '(' expression ')'"
     args = p[3]
     # Check validity of argument list : There are restrictions on the order of argument types

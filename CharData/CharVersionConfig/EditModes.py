@@ -1,3 +1,4 @@
+from __future__ import annotations
 from enum import IntEnum
 # from django.db.models import IntegerChoices
 from typing import Final
