@@ -22,10 +22,11 @@ class BaseCVManager:
     # May be overwritten by a property.
     data_source_descriptions: List[DataSourceDescription] = []
 
-
-    # NOTE: Due to an __init_subclass__ hook that looks at __dict__, these do NOT get inherited to subclasses.
+    # NOTE: Due to an __init_subclass__ hook that looks at __dict__, these get automatically overwritten in subclasses unless explicitly set (not recommended).
     module: ClassVar[str]  # Set to cls.__module__ (after class creation).
     type_id: ClassVar[str]  # Set to cls.__name__ (after class creation).
+    instruction: ManagerInstruction
+    cv_config: CVConfig
 
     # Called manually for BaseCVManager itself.
     def __init_subclass__(cls, module: str = None, type_id: str = None, register: bool = True, **kwargs):
@@ -49,6 +50,7 @@ class BaseCVManager:
     def __init__(self, /, *args, cv_config: CVConfig, manager_instruction: ManagerInstruction, **kwargs):
         """
         Called by CVConfig.setup_managers() to initialize the manager
+        May be overwritten in a subclass, but you need to ensure self.instruction and self.cv_config are set.
         :param cv_config: calling cv_config
         :param manager_instruction: refers to the entry in the calling cv_config's python_recipe.managers that was responsible for creating this.
         :param args: arbitrary arguments from the recipe.
@@ -57,21 +59,34 @@ class BaseCVManager:
         self.args = args
         self.kwargs = kwargs
         self.cv_config = cv_config
-        self.instruction = manager_instruction
+        self.instruction = manager_instruction  # Important: Must not copy, but bind.
+
+    def post_setup(self, /, create: CreateManagerEnum) -> None:
+        """
+        Normally called after __init__ has finished for all managers with create=no_create.
+
+        create = CreateManagerEnum.no_create: normal operation as above.
+        create = CreateManagerEnum.create_config: Called once at creation of the owning config. Might need to do database setup.
+        create = CreateManagerEnum.destroy_config: Called once at destruction of owning config. Might need to do database cleanup.
+        create = CreateManagerEnum.add_manager: Called once upon adding this manager to the owning config.
+
+        See Notes.txt for precise non-obvious usage.
+        """
+        pass
+
 
     @classmethod
     def recipe_base_dict(cls, /) -> ManagerInstructionDictBase:
         """
         This should be used in python recipes as {**CVManager.recipe_base(), ...} to set up type and module correctly.
+        No need to overwrite.
         """
         ret: ManagerInstructionDictBase = {'type_id': cls.type_id, 'module': cls.module}
         return ret
 
     def get_recipe_as_dict(self, /) -> ManagerInstructionDict:
         """
-        Used to re-create the arguments used to make this instance.
-        Is almost identical to self.instructions (except that 'args' / 'kwargs' / 'type' / 'module' is always present
-        and not defaulted)
+        Used to re-create the arguments used to make this instance. No need to overwrite.
         """
         return self.instruction.as_dict()
 
@@ -89,29 +104,27 @@ class BaseCVManager:
 
         Both copy_config and the the deque's callables modify its target_recipe argument.
         """
-        target_recipe.managers.append(self.instruction.make_copy())
+        target_recipe.manager_instructions.append(self.instruction.make_copy())
 
     def delete_manager(self):
-        pass
-
-    def post_setup(self, /, create: CreateManagerEnum) -> None:
-        """
-        Called after setup has finished for all managers.
-        Called with true-ish create when we first create a config or manager.
-        """
+        """Called before the manager is deleted from a config."""
         pass
 
     def change_instruction(self, new_instruction: ManagerInstruction, python_recipe: PythonConfigRecipe, /) -> None:
         """
         Called when the instructions of the manager change to new_instructions.
+        May in some cases need to modify python_recipe (which is the owning config's recipe).
+        Note that the actual modification of instructions is done by the caller afterwards.
+
+        See Notes.txt for precise usage requirements.
         """
         pass
 
-    def get_data_sources(self, /, description: DataSourceDescription) -> Iterable[CharDataSourceBase]:
+    def _get_data_sources(self, /, description: DataSourceDescription) -> Iterable[CharDataSourceBase]:
         return []
 
     def make_data_source(self, /, *, description: DataSourceDescription, target_list: List[CharDataSourceBase]) -> None:
-        target_list.extend(self.get_data_sources(description))
+        target_list.extend(self._get_data_sources(description))
 
     def validate_config(self, /):
         if self.instruction.module != type(self).module:
@@ -120,4 +133,5 @@ class BaseCVManager:
             raise ValueError("CVConfig validation failed: Registered type_id differs from saved type_id. Did you forget to create a db migration after a rename of a CVManager class?")
 
 
-BaseCVManager.__init_subclass__()  # BaseCVManager is a perfectly valid CVManager (that does absolutely nothing)
+# BaseCVManager is actually a perfectly valid CVManager (that does absolutely nothing) itself. This is required to make it usable:
+BaseCVManager.__init_subclass__()

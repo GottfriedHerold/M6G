@@ -26,20 +26,19 @@ class BasicManagerTest(django.test.TestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.cvs = setup_chars_and_versions()
-        new_instructions_base: ManagerInstructionDictBase = cls.cv_manager.recipe_base_dict()
-        assert new_instructions_base.keys() == {'type_id', 'module'}
+        new_instruction_base: ManagerInstructionDictBase = cls.cv_manager.recipe_base_dict()
+        assert new_instruction_base.keys() == {'type_id', 'module'}
         group_str: str = cls.new_group.name
-        new_instructions_dict: ManagerInstructionDict = {'args': cls.new_args, 'kwargs': cls.new_kwargs,
-                                                          'group': group_str, 'module': new_instructions_base['module'],
-                                                          'type_id': new_instructions_base['type_id']}
-        cls.recipe_dict['managers'].append(new_instructions_dict)
+        new_instruction_dict: ManagerInstructionDict = {'args': cls.new_args, 'kwargs': cls.new_kwargs,
+                                                          'group': group_str, 'module': new_instruction_base['module'],
+                                                          'type_id': new_instruction_base['type_id']}
+        cls.recipe_dict['manager_instructions'].append(new_instruction_dict)
         cls.new_char_empty = CharVersionModel.create_root_char_version(owner=cls.cvs['char1'],
                                                                        python_config=PythonConfigRecipe.from_nested_dict(**cls.empty_recipe_dict),
                                                                        edit_mode=EditModes.NORMAL)
         cls.new_char_with_manager = CharVersionModel.create_root_char_version(owner=cls.cvs['char1'], python_config=PythonConfigRecipe.from_nested_dict(**cls.recipe_dict),
                                                                               edit_mode=EditModes.NORMAL)
         cls.new_char_copy = CharVersionModel.derive_char_version(parent=cls.new_char_with_manager)
-
 
     def setUp(self):
         super().setUp()
