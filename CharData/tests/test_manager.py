@@ -5,7 +5,7 @@ from copy import deepcopy
 
 import django.test
 
-from CharData.CharVersionConfig import BaseCVManager, CVConfig, EMPTY_RECIPE_DICT, PythonConfigRecipeDict, ManagerInstructionsDict, ManagerInstructionsDictBase, ManagerInstructionGroups, PythonConfigRecipe, EditModes
+from CharData.CharVersionConfig import BaseCVManager, CVConfig, EMPTY_RECIPE_DICT, PythonConfigRecipeDict, ManagerInstructionDict, ManagerInstructionDictBase, ManagerInstructionGroups, PythonConfigRecipe, EditModes
 from DBInterface.tests import setup_users_and_groups, _setup_users_and_groups_return_class, setup_chars_and_versions, _setup_chars_and_versions_return_class
 from DBInterface.models import CharVersionModel
 
@@ -26,10 +26,10 @@ class BasicManagerTest(django.test.TestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.cvs = setup_chars_and_versions()
-        new_instructions_base: ManagerInstructionsDictBase = cls.cv_manager.recipe_base_dict()
+        new_instructions_base: ManagerInstructionDictBase = cls.cv_manager.recipe_base_dict()
         assert new_instructions_base.keys() == {'type_id', 'module'}
         group_str: str = cls.new_group.name
-        new_instructions_dict: ManagerInstructionsDict = {'args': cls.new_args, 'kwargs': cls.new_kwargs,
+        new_instructions_dict: ManagerInstructionDict = {'args': cls.new_args, 'kwargs': cls.new_kwargs,
                                                           'group': group_str, 'module': new_instructions_base['module'],
                                                           'type_id': new_instructions_base['type_id']}
         cls.recipe_dict['managers'].append(new_instructions_dict)

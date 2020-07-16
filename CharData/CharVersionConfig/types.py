@@ -18,7 +18,7 @@
         'edit_mode': int (EditModes.FOO.value, on the dict level we do not use EnumTypes)
         'data_source_order': list of ints (a permutation of 0,1,2, ...) that index into the list of data source descriptions,
                              which are in turn defined by the managers.
-        'managers': list of manager creation instructions
+        'manager_instructions': list of manager creation instructions
     }
 
     each manager instruction in turn is a dict
@@ -59,18 +59,18 @@ class ManagerInstructionGroups(Enum):
     core = 'core'
 
 
-class ManagerInstructionsDictBase(TypedDict):
+class ManagerInstructionDictBase(TypedDict):
     type_id: str
     module: str
 
 
-class ManagerInstructionsDict(ManagerInstructionsDictBase):
+class ManagerInstructionDict(ManagerInstructionDictBase):
     args: list
     kwargs: dict
     group: str  # key to ManagerInstructionsGroup
 
 @dataclasses.dataclass
-class ManagerInstructions:
+class ManagerInstruction:
     type_id: str
     module: str
     group: ManagerInstructionGroups
@@ -81,33 +81,33 @@ class ManagerInstructions:
     def from_nested_dict(cls, /, group: str, **kwargs):
         return cls(group=ManagerInstructionGroups[group], **kwargs)
 
-    def as_dict(self, /) -> ManagerInstructionsDict:
-        ret: ManagerInstructionsDict = {'type_id': self.type_id, 'module': self.module, 'args': self.args, 'kwargs': self.kwargs, 'group': self.group.name}
+    def as_dict(self, /) -> ManagerInstructionDict:
+        ret: ManagerInstructionDict = {'type_id': self.type_id, 'module': self.module, 'args': self.args, 'kwargs': self.kwargs, 'group': self.group.name}
         return ret
 
-    def make_copy(self, /) -> ManagerInstructions:
+    def make_copy(self, /) -> ManagerInstruction:
         return dataclasses.replace(self)
 
 
 class PythonConfigRecipeDict(TypedDict):
     edit_mode: int  # key to EditModes
     data_source_order: List[int]
-    managers: List[ManagerInstructionsDict]
+    manager_instructions: List[ManagerInstructionDict]
 
 @dataclasses.dataclass
 class PythonConfigRecipe:
     edit_mode: EditModes
     data_source_order: List[int]
-    managers: List[ManagerInstructions]
+    manager_instructions: List[ManagerInstruction]
 
     @classmethod
-    def from_nested_dict(cls, /, edit_mode: int, data_source_order: List[int], managers: List[ManagerInstructionsDict]):
+    def from_nested_dict(cls, /, edit_mode: int, data_source_order: List[int], manager_instructions: List[ManagerInstructionDict]):
         return cls(edit_mode=EditModes(edit_mode), data_source_order=data_source_order,
-                   managers=list(map(lambda m_instruction_dict: ManagerInstructions.from_nested_dict(**m_instruction_dict), managers)))
+                   manager_instructions=list(map(lambda m_instruction_dict: ManagerInstruction.from_nested_dict(**m_instruction_dict), manager_instructions)))
 
     def as_dict(self, /) -> PythonConfigRecipeDict:
         return {'edit_mode': self.edit_mode.value, 'data_source_order': self.data_source_order,
-                'managers': list(map(lambda instruction: instruction.as_dict(), self.managers))}
+                'manager_instructions': list(map(lambda instruction: instruction.as_dict(), self.manager_instructions))}
 
     def make_copy(self, /) -> PythonConfigRecipe:
         return dataclasses.replace(self)
@@ -136,7 +136,7 @@ def validate_strict_JSON_serializability(arg, /) -> None:
 EMPTY_RECIPE_DICT: Final[PythonConfigRecipeDict] = {
     'edit_mode': EditModes.NORMAL,
     'data_source_order': [],
-    'managers': []
+    'manager_instructions': []
 }
 EMPTY_RECIPE: Final[PythonConfigRecipe] = PythonConfigRecipe.from_nested_dict(**EMPTY_RECIPE_DICT)
 
@@ -146,6 +146,7 @@ class CreateManagerEnum(IntEnum):
     create_config = 1
     destroy_config = 2
     add_manager = 3
+
 
 # Default argument for create.
 NO_CREATE: Final[CreateManagerEnum] = CreateManagerEnum['no_create']

@@ -5,7 +5,7 @@ from typing import List, ClassVar, Optional, Iterable, TYPE_CHECKING
 from .CharVersionConfig import CVConfig
 # from .types import NO_CREATE
 if TYPE_CHECKING:
-    from .types import ManagerInstructions, ManagerInstructionsDictBase, ManagerInstructionsDict, PythonConfigRecipe, CreateManagerEnum
+    from .types import ManagerInstruction, ManagerInstructionDictBase, ManagerInstructionDict, PythonConfigRecipe, CreateManagerEnum
     from .DataSourceDescription import DataSourceDescription
     from DBInterface.models import CharVersionModel
     from CharData.DataSources import CharDataSourceBase
@@ -46,7 +46,7 @@ class BaseCVManager:
         if register:
             CVConfig.register(type_id=cls.type_id, creator=cls)
 
-    def __init__(self, /, *args, cv_config: CVConfig, manager_instruction: ManagerInstructions, **kwargs):
+    def __init__(self, /, *args, cv_config: CVConfig, manager_instruction: ManagerInstruction, **kwargs):
         """
         Called by CVConfig.setup_managers() to initialize the manager
         :param cv_config: calling cv_config
@@ -60,14 +60,14 @@ class BaseCVManager:
         self.instruction = manager_instruction
 
     @classmethod
-    def recipe_base_dict(cls, /) -> ManagerInstructionsDictBase:
+    def recipe_base_dict(cls, /) -> ManagerInstructionDictBase:
         """
         This should be used in python recipes as {**CVManager.recipe_base(), ...} to set up type and module correctly.
         """
-        ret: ManagerInstructionsDictBase = {'type_id': cls.type_id, 'module': cls.module}
+        ret: ManagerInstructionDictBase = {'type_id': cls.type_id, 'module': cls.module}
         return ret
 
-    def get_recipe_as_dict(self, /) -> ManagerInstructionsDict:
+    def get_recipe_as_dict(self, /) -> ManagerInstructionDict:
         """
         Used to re-create the arguments used to make this instance.
         Is almost identical to self.instructions (except that 'args' / 'kwargs' / 'type' / 'module' is always present
@@ -101,7 +101,7 @@ class BaseCVManager:
         """
         pass
 
-    def change_instruction(self, new_instruction: ManagerInstructions, python_recipe: PythonConfigRecipe, /) -> None:
+    def change_instruction(self, new_instruction: ManagerInstruction, python_recipe: PythonConfigRecipe, /) -> None:
         """
         Called when the instructions of the manager change to new_instructions.
         """

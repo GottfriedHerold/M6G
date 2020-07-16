@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json
-import typing
 import logging
 import warnings
 from importlib import import_module
@@ -12,7 +11,7 @@ from django.conf import settings as django_settings
 
 from .EditModes import EditModes
 from .types import validate_strict_JSON_serializability, PythonConfigRecipe, PythonConfigRecipeDict, \
-    ManagerInstructionGroups, CreateManagerEnum, ManagerInstructions
+    ManagerInstructionGroups, CreateManagerEnum, ManagerInstruction
 
 if TYPE_CHECKING:
     from CharData.BaseCharVersion import BaseCharVersion
@@ -266,7 +265,7 @@ class CVConfig:
         if self._managers is not None:
             raise ValueError("Trying to set up managers multiple times")
         self._managers = []
-        for manager_instruction in self.python_recipe.managers:
+        for manager_instruction in self.python_recipe.manager_instructions:
             self._managers.append(self._create_manager_from_instruction(manager_instruction))
         for manager in self.managers:
             manager.post_setup(create=create)
@@ -331,7 +330,7 @@ class CVConfig:
     def edit_mode(self, /) -> EditModes:
         return self._edit_mode
 
-    def _create_manager_from_instruction(self, manager_instruction: ManagerInstructions, /) -> BaseCVManager:
+    def _create_manager_from_instruction(self, manager_instruction: ManagerInstruction, /) -> BaseCVManager:
         type_id = manager_instruction.type_id
         if type_id not in type(self).known_types:
             import_module(manager_instruction.module)
@@ -432,7 +431,7 @@ class CVConfig:
             raise warnings.warn("copy_config should be wrapped in a transaction.", RuntimeWarning)
         if new_edit_mode is None:
             new_edit_mode = self.edit_mode
-        new_py_recipe = PythonConfigRecipe(edit_mode=new_edit_mode, data_source_order=self.data_source_order, managers=[])
+        new_py_recipe = PythonConfigRecipe(edit_mode=new_edit_mode, data_source_order=self.data_source_order, manager_instructions=[])
         self.post_process_copy_config = deque()
         for manager in self.managers:
             manager.copy_config(new_py_recipe, transplant=transplant, target_db=target_db)
@@ -442,7 +441,7 @@ class CVConfig:
         new_config.validate_setup()
         return new_config
 
-    def add_manager(self, manager_instruction: ManagerInstructions, /) -> None:
+    def add_manager(self, manager_instruction: ManagerInstruction, /) -> None:
         """
         Adds a new manager defined by manager_instructions (in dataclass format) to the current configuration.
 
@@ -463,7 +462,7 @@ class CVConfig:
         # TODO: Output ordering
         new_manager: BaseCVManager = self._create_manager_from_instruction(manager_instruction)
         self._managers.append(new_manager)
-        self._python_recipe.managers.append(manager_instruction)
+        self._python_recipe.manager_instructions.append(manager_instruction)
         self._json_recipe = None  # force re-computation
         new_manager.post_setup(create=CreateManagerEnum.add_manager)
         new_data_sources = new_manager.data_source_descriptions
@@ -508,8 +507,8 @@ class CVConfig:
         data_source_descriptions = self.data_source_descriptions  # To force computing them before calling delete_manager()
         source_descriptions_left_to_remove: int = len(manager.data_source_descriptions)
         manager.delete_manager()
-        assert self.python_recipe.managers[manager_pos] is manager.instructions
-        del self.python_recipe.managers[manager_pos]
+        assert self.python_recipe.manager_instructions[manager_pos] is manager.instruction
+        del self.python_recipe.manager_instructions[manager_pos]
         # Remove all data_source_descriptions with this manager:
         i = 0
         while i < len(self.data_source_order):
@@ -528,11 +527,11 @@ class CVConfig:
         self._json_recipe = None
         self._re_init(setup_managers=True)
 
-    def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstructions, /) -> None:
+    def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstruction, /) -> None:
         manager_pos, manager = self._find_manager(manager_identifier)
         manager.change_instruction(new_instruction, self._python_recipe)  # Note: This might change self.py_python_recipe
         self._json_recipe = None
-        self._python_recipe.managers[manager_pos] = new_instruction
+        self._python_recipe.manager_instructions[manager_pos] = new_instruction
         self._re_init(setup_managers=True)
 
     @classmethod
@@ -544,7 +543,7 @@ class CVConfig:
             raise ValueError("Invalid CVConfig: Wrong type")
         if type(py.edit_mode) is not EditModes:
             raise ValueError("Invalid CVConfig: Invalid edit mode")
-        for manager_instruction in py.managers:
+        for manager_instruction in py.manager_instructions:
             if type(manager_instruction.args) is not list:
                 raise ValueError("Invalid CVConfig: args of manager instruction is not list")
             validate_strict_JSON_serializability(manager_instruction.args)
