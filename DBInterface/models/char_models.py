@@ -239,6 +239,7 @@ class CharVersionModel(models.Model):
 
         # This just serves for the json<->python conversion, really.
         new_config: CVConfig = CVConfig(from_json=json_config, from_python=python_config, validate_syntax=True, setup_managers=False)
+        json_config = new_config.json_recipe
 
         with transaction.atomic():
 
@@ -246,7 +247,7 @@ class CharVersionModel(models.Model):
             # We create a new version now in oder to get a primary key in the database:
             try:
                 new_char_version: CharVersionModel = CharVersionModel(version_name=version_name,
-                                                                      json_config=new_config.json_recipe,
+                                                                      json_config=json_config,
                                                                       char_version_number=owner.max_version,
                                                                       last_changed=datetime.now(timezone.utc),
                                                                       description=description,
@@ -259,12 +260,11 @@ class CharVersionModel(models.Model):
                 # Re-create the config with the associated primary key and tell CVConfig that it is a new version.
                 # (This may trigger hooks in the associated managers)
 
-                new_config = CVConfig(from_python=new_config.python_recipe, setup_managers=True, db_char_version=new_char_version,
-                                      validate_setup=True, create=True)
-                # In theory, CVConfig with create = True might change new_config and validity, so we re-check things:
-                CVConfig(from_python=new_config.python_recipe, setup_managers=True, validate_syntax=True, validate_setup=True)
-                new_char_version.json_config = new_config.json_recipe
-                new_char_version.save()
+                new_config = CVConfig.create_char_version_config(from_python=new_config.python_recipe, db_char_version=new_char_version, setup_managers=True)
+                # In theory, CVConfig.create_char_version_config might change the config:
+                if json_config != new_config.json_recipe:
+                    new_char_version.json_config = new_config.json_recipe
+                    new_char_version.save()
                 owner.max_version += 1
                 owner.save()
                 CVReferencesModel.check_reference_validity_for_char_version(new_char_version)
@@ -319,7 +319,7 @@ class CharVersionModel(models.Model):
                     raise ValueError("Cannot edit char for overwriting: Other versions of this char refer to it.")
                 CVReferencesModel.objects.create(source=new_version, target=parent, reason_str="Overwrite target",
                                                  ref_type=CVReferencesModel.ReferenceType.OVERWRITE.value)
-            parent_config = CVConfig(from_json=parent.json_config, validate_syntax=True, validate_setup=True, db_char_version=parent)
+            parent_config = CVConfig(from_json=parent.json_config, validate_syntax=True, setup_managers=True, validate_setup=True, db_char_version=parent)
             new_config = parent_config.copy_config(target_db=new_version, new_edit_mode=edit_mode, transplant=transplant)
             new_version.json_config = new_config.json_recipe
             new_version.edit_mode = new_config.edit_mode

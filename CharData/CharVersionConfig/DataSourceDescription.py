@@ -1,5 +1,5 @@
 from __future__ import annotations
-from enum import Enum, auto
+from enum import IntEnum, auto
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,14 +19,14 @@ class DataSourceDescription:
     description: str = ""  # Description that is displayed to the user
 
     # Position block of the data source. Data sources can only be moved within the blocks.
-    class PositionType(Enum):
-        start = auto()
-        middle = auto()
-        end = auto()
-    position: PositionType = PositionType.middle
+    class PositionType(IntEnum):
+        start = 1
+        middle = 101
+        end = 201
+    position_type: PositionType = PositionType.middle
 
     # When adding a data source with priority != None, it will get its initial position within its block according to
-    # priority.
+    # priority, otherwise at the end.
     priority: Optional[int] = None
     manager: BaseCVManager
 

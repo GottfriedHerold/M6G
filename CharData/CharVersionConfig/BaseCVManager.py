@@ -1,9 +1,11 @@
 from __future__ import annotations
 from typing import List, ClassVar, Optional, Iterable, TYPE_CHECKING
+# from enum import IntEnum
 
 from .CharVersionConfig import CVConfig
+# from .types import NO_CREATE
 if TYPE_CHECKING:
-    from .types import ManagerInstructions, ManagerInstructionsDictBase, ManagerInstructionsDict, PythonConfigRecipe
+    from .types import ManagerInstructions, ManagerInstructionsDictBase, ManagerInstructionsDict, PythonConfigRecipe, CreateManagerEnum
     from .DataSourceDescription import DataSourceDescription
     from DBInterface.models import CharVersionModel
     from CharData.DataSources import CharDataSourceBase
@@ -17,7 +19,10 @@ class BaseCVManager:
     # List of DataSourceDescriptions that is displayed to the user when this manager is present.
     # CVConfig.data_source_order is a permutation of indices into the list of all data_source_descriptions.
     # make_data_source is called for each data_source_description.
+    # May be overwritten by a property.
     data_source_descriptions: List[DataSourceDescription] = []
+
+
     # NOTE: Due to an __init_subclass__ hook that looks at __dict__, these do NOT get inherited to subclasses.
     module: ClassVar[str]  # Set to cls.__module__ (after class creation).
     type_id: ClassVar[str]  # Set to cls.__name__ (after class creation).
@@ -52,7 +57,7 @@ class BaseCVManager:
         self.args = args
         self.kwargs = kwargs
         self.cv_config = cv_config
-        self.instructions = manager_instruction
+        self.instruction = manager_instruction
 
     @classmethod
     def recipe_base_dict(cls, /) -> ManagerInstructionsDictBase:
@@ -68,7 +73,7 @@ class BaseCVManager:
         Is almost identical to self.instructions (except that 'args' / 'kwargs' / 'type' / 'module' is always present
         and not defaulted)
         """
-        return self.instructions.as_dict()
+        return self.instruction.as_dict()
 
     def copy_config(self, target_recipe: PythonConfigRecipe, /, *, transplant: bool, target_db: Optional[CharVersionModel]) -> None:
         """
@@ -84,11 +89,21 @@ class BaseCVManager:
 
         Both copy_config and the the deque's callables modify its target_recipe argument.
         """
-        target_recipe.managers.append(self.instructions.make_copy())
+        target_recipe.managers.append(self.instruction.make_copy())
 
-    def post_setup(self, /, create: bool = False) -> None:
+    def delete_manager(self):
+        pass
+
+    def post_setup(self, /, create: CreateManagerEnum) -> None:
         """
-        Called after setup has finished for all managers
+        Called after setup has finished for all managers.
+        Called with true-ish create when we first create a config or manager.
+        """
+        pass
+
+    def change_instruction(self, new_instruction: ManagerInstructions, python_recipe: PythonConfigRecipe, /) -> None:
+        """
+        Called when the instructions of the manager change to new_instructions.
         """
         pass
 
@@ -99,9 +114,9 @@ class BaseCVManager:
         target_list.extend(self.get_data_sources(description))
 
     def validate_config(self, /):
-        if self.instructions.module != type(self).module:
+        if self.instruction.module != type(self).module:
             raise ValueError("CVConfig validation failed: Registered module differs from saved module. Did you forget to create a db migration after a file rename during code reorganization?")
-        if self.instructions.type_id != type(self).type_id:
+        if self.instruction.type_id != type(self).type_id:
             raise ValueError("CVConfig validation failed: Registered type_id differs from saved type_id. Did you forget to create a db migration after a rename of a CVManager class?")
 
 

@@ -1,8 +1,8 @@
 """
 Defines a DummyManager and tests that the corresponding functions get called.
 """
-
 from __future__ import annotations
+from CharData.CharVersionConfig import BaseCVManager
 
 class TestCVManager(BaseCVManager):
     log = list()  # we let our Managers append to the log to test that its functions are called in the correct order.

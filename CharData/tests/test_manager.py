@@ -38,11 +38,11 @@ class BasicManagerTest(django.test.TestCase):
                                                                        edit_mode=EditModes.NORMAL)
         cls.new_char_with_manager = CharVersionModel.create_root_char_version(owner=cls.cvs['char1'], python_config=PythonConfigRecipe.from_nested_dict(**cls.recipe_dict),
                                                                               edit_mode=EditModes.NORMAL)
+        cls.new_char_copy = CharVersionModel.derive_char_version(parent=cls.new_char_with_manager)
 
 
     def setUp(self):
         super().setUp()
-
 
     def test_import(self):
         import_module(self.cv_manager.module)

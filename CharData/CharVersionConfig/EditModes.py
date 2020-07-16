@@ -25,9 +25,9 @@ class EditModes(IntEnum):
     def is_overwriter(self, /) -> bool:
         return (self is EditModes.EDIT_DATA_OVERWRITE) or (self is EditModes.EDIT_CONFIG_OVERWRITE)
 
-    @classmethod
-    def allowed_reference_targets(cls, /):
-        return [cls.NORMAL]
+    @staticmethod
+    def allowed_reference_targets():
+        return ALLOWED_REFERENCE_TARGETS
 
 
 ALLOWED_REFERENCE_TARGETS: Final = [EditModes.NORMAL]

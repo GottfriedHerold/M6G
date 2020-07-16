@@ -48,7 +48,7 @@ from __future__ import annotations
 import dataclasses
 # NOTE: dataclasses-json is not deemed mature enough, so we do everything manually
 from typing import TypedDict, Final, List
-from enum import Enum
+from enum import Enum, IntEnum
 
 from .EditModes import EditModes
 
@@ -139,3 +139,13 @@ EMPTY_RECIPE_DICT: Final[PythonConfigRecipeDict] = {
     'managers': []
 }
 EMPTY_RECIPE: Final[PythonConfigRecipe] = PythonConfigRecipe.from_nested_dict(**EMPTY_RECIPE_DICT)
+
+
+class CreateManagerEnum(IntEnum):
+    no_create = 0
+    create_config = 1
+    destroy_config = 2
+    add_manager = 3
+
+# Default argument for create.
+NO_CREATE: Final[CreateManagerEnum] = CreateManagerEnum['no_create']
