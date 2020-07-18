@@ -46,6 +46,16 @@ _Arg_Type = TypeVar("_Arg_Type")
 
 _ALL_SUFFIX: Final = "_all"
 
+class CharPermissionError(Exception):
+    pass
+
+class NoWritePermissionError(CharPermissionError):
+    pass
+
+# This may be raised from __init__ in a subclass. Included here for consistency.
+class NoReadPermissionError(CharPermissionError):
+    pass
+
 class BaseCharVersion:
     """
     This class models a set of data sources that makes up a character. Note that this is supposed to be subclassed
@@ -61,13 +71,18 @@ class BaseCharVersion:
 
     db_instance: ClassVar = None  # overwritten in subclasses
     db_write_back = False  # Controls write-back default argument of configuration manipulation interface.
-    read_permission: bool = True  # may be overridden on an instance-by-instance basis
     write_permission: bool = True  # may be overridden on an instance-by-instance basis
+
+    # Internally used to speed up lookups, these are set in self._update_list_lookup_info:
+    _unrestricted_lists: list = []  # indices of data sources that contain unrestricted keys in lookup order
+    _restricted_lists: list = []  # indices of data sources that contain restricted keys in lookup order
+    _type_lookup: dict = {}  # first index of data source for a given dict_type
+    _desc_lookup: dict = {}  # first index of data source for a given description
+    _default_target: Optional[int] = None  # index that writes go by default
 
     _config: Optional[CVConfig]
 
-    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None,
-                 read_permission: bool = None, write_permission: bool = None,
+    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None, write_permission: bool = None,
                  **kwargs):
         """
         Creates a BaseCharConfig. You should set either initial_list or config/py_config/json_config to initialize its lists (if config is set,
@@ -87,22 +102,18 @@ class BaseCharVersion:
         # may need to to obtain the primary key of the CharVersion object.)
         if (data_sources is None) + (config is None) + (py_config is None) + (json_config is None) != 3:
             raise ValueError("Need to provide exactly one of data_sources or some form of config")
-        if read_permission is not None:
-            self.read_permission = read_permission
         if write_permission is not None:
             self.write_permission = write_permission
-        if self.write_permission:
-            assert self.read_permission
         if data_sources is None:
             if py_config is not None:
                 self._config = CVConfig(from_python=py_config, char_version=self, setup_managers=True)
             elif json_config is not None:
                 self._config = CVConfig(from_json=json_config, char_version=self, setup_managers=True)
             else:
-                config.associate_char_version(char_version=self)
                 self._config = config
+                config.associate_char_version(char_version=self)
                 self._config.setup_managers()
-            self._data_sources = self._config.make_data_sources()
+                self._data_sources = None  # set from self._updated_config()
         else:
             # TODO: Might go away completely.
             from django.conf import settings
@@ -110,13 +121,6 @@ class BaseCharVersion:
                 raise RuntimeWarning("data sources interface to CharData is deprecated")
             self._data_sources = data_sources
             self._config = None
-
-        # Internally used to speed up lookups:
-        self._unrestricted_lists = []  # indices of data sources that contain unrestricted keys in lookup order
-        self._restricted_lists = []  # indices of data sources that contain restricted keys in lookup order
-        self._type_lookup = {}  # first index of data source for a given dict_type
-        self._desc_lookup = {}  # first index of data source for a given description
-        self._default_target = None  # index that writes go by default
 
         # These parameters are only set if they occur in kwargs at all
         # (Note that creation_time = None is handled differently from creation_time not present)
@@ -132,25 +136,13 @@ class BaseCharVersion:
             self.last_change: datetime = kwargs["last_change"]
         if "description" in kwargs:
             self.description: str = kwargs["description"]
-        self._update_list_lookup_info()
-        return
+        self._updated_config()
 
-    def add_manager(self, manager_instruction: ManagerInstruction, /, db_write_back: bool = None) -> None:
-        if db_write_back is None:
-            db_write_back = self.db_write_back
-        self.config.add_manager(manager_instruction, db_write_back=db_write_back)
+    def __enter__(self):
+        raise NotImplemented
 
-    def remove_manager(self, manager_identifier: Union[BaseCVManager, int], /, db_write_back: bool = None) -> None:
-        if db_write_back is None:
-            db_write_back = self.db_write_back
-        self.config.remove_manager(manager_identifier, db_write_back=db_write_back)
-
-    def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstruction, /, db_write_back: bool = None) -> None:
-        if db_write_back is None:
-            db_write_back = self.db_write_back
-        self.config.change_manager(manager_identifier, new_instruction, db_write_back=db_write_back)
-
-
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        raise NotImplemented
 
     class _Decorators:
         @staticmethod
@@ -181,6 +173,36 @@ class BaseCharVersion:
             _inner.__annotations__['target_desc'] = Optional[str]
             return _inner
 
+        @staticmethod
+        def requires_write_permission(method):
+            @wraps(method)
+            def wrapped_method(self: BaseCharVersion, *args, **kwargs):
+                if not self.write_permission:
+                    raise NoWritePermissionError
+                return method(self, *args, **kwargs)
+            return wrapped_method
+
+    @_Decorators.requires_write_permission
+    def add_manager(self, manager_instruction: ManagerInstruction, /, db_write_back: bool = None) -> None:
+        if db_write_back is None:
+            db_write_back = self.db_write_back
+        self.config.add_manager(manager_instruction, db_write_back=db_write_back)
+
+    @_Decorators.requires_write_permission
+    def remove_manager(self, manager_identifier: Union[BaseCVManager, int], /, db_write_back: bool = None) -> None:
+        if not self.write_permission:
+            raise NoWritePermissionError
+        if db_write_back is None:
+            db_write_back = self.db_write_back
+        self.config.remove_manager(manager_identifier, db_write_back=db_write_back)
+
+    @_Decorators.requires_write_permission
+    def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstruction, /,
+                       db_write_back: bool = None) -> None:
+        if db_write_back is None:
+            db_write_back = self.db_write_back
+        self.config.change_manager(manager_identifier, new_instruction, db_write_back=db_write_back)
+
     @property
     def data_sources(self) -> List[CharDataSourceBase]:
         return self._data_sources
@@ -190,6 +212,8 @@ class BaseCharVersion:
         """
         Should only be called from debug code, really. May be removed in the future.
         """
+        if not self.write_permission:
+            raise NoWritePermissionError
         self._data_sources = new_lists
         self._update_list_lookup_info()
 
@@ -199,12 +223,14 @@ class BaseCharVersion:
 
     #  setter for config? We basically would need to create a new object
 
+    def _updated_config(self):
+        if self._config:  # TODO: Basically always true... This is just needed for the legacy interface of directly giving data sources. Will be removed.
+            self._data_sources = self._config.make_data_sources()
+        self._update_list_lookup_info()
+
     def _update_list_lookup_info(self) -> None:
         """
         Called to update internal data related to lookup on the data sources.
-        Note that modifying list by an external caller is not recommended anyway.
-        Also note that BaseCharVersion().lists.insert(...) bypasses @lists.setter.
-        May needs to be called externally after self.lists changes (which you should not do)
         """
         self._unrestricted_lists = []
         self._restricted_lists = []
@@ -274,6 +300,7 @@ class BaseCharVersion:
         def set(self, key: str, value: object, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
+        @_Decorators.requires_write_permission
         def set(self, source: CharDataSourceBase, key: str, value: object) -> None:
             source[key] = value
             self.last_change = datetime.now(timezone.utc)
@@ -282,6 +309,7 @@ class BaseCharVersion:
         def bulk_set(self, key_values: Dict[str, object], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
+        @_Decorators.requires_write_permission
         def bulk_set(self, source: CharDataSourceBase, key_values: Dict[str, object]) -> None:
             source.bulk_set_items(key_values)
             if key_values:
@@ -291,6 +319,7 @@ class BaseCharVersion:
         def set_input(self, key: str, value: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
+        @_Decorators.requires_write_permission
         def set_input(self, source: CharDataSourceBase, key: str, value: str) -> None:
             source.set_input(key, value)
             self.last_change = datetime.now(timezone.utc)
@@ -299,6 +328,7 @@ class BaseCharVersion:
         def bulk_set_input(self, key_values: Dict[str, str], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
+        @_Decorators.requires_write_permission
         def bulk_set_input(self, source: CharDataSourceBase, key_values: Dict[str, str]) -> None:
             source.bulk_set_inputs(key_values)
             if key_values:
@@ -308,6 +338,7 @@ class BaseCharVersion:
         def delete(self, key: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
+        @_Decorators.requires_write_permission
         def delete(self, source: CharDataSourceBase, key: str) -> None:
             """
             Deletes data_source[key] where data_source is specified by where / target_type / target_desc.
@@ -320,6 +351,7 @@ class BaseCharVersion:
         def bulk_delete(self, keys: Iterable[str], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
     else:
         @_Decorators.act_on_data_source
+        @_Decorators.requires_write_permission
         def bulk_delete(self, source: CharDataSourceBase, keys: Iterable[str]) -> None:
             source.bulk_del_items(keys)
             if keys:
@@ -670,6 +702,8 @@ class BaseCharVersion:
             # This code relies on the order set in _normalize_action
 
             if action_id <= 3:  # action_ids 1 to 3 are write operations.
+                if not self.write_permission:
+                    raise NoWritePermissionError
                 changed = True
             while action_id == 1:  # set_input
                 # Note that args is a list of pairs. dict actually converts that. TODO: Change signature of set_inputs?

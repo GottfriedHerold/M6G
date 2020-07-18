@@ -335,7 +335,6 @@ class CVConfig:
         return self.python_recipe.data_source_order
 
     def write_back_to_db(self, /) -> None:
-        from DBInterface.models import CharVersionModel
         if transaction.get_autocommit():
             raise RuntimeError("writing to db only allowed inside a transaction.")
         self.db_char_version.refresh_from_db()
