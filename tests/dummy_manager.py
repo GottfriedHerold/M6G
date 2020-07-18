@@ -2,8 +2,8 @@
 Defines a DummyManager and tests that the corresponding functions get called.
 """
 from __future__ import annotations
-from CharData.DataSources import CharDataSourceBase, CharDataSourceDict
-from CharData.CharVersionConfig import BaseCVManager, CreateManagerEnum, DataSourceDescription, CVConfig, ManagerInstruction
+from DataSources import CharDataSourceBase, CharDataSourceDict
+from CharVersionConfig import BaseCVManager, CreateManagerEnum, DataSourceDescription, CVConfig, ManagerInstruction
 from typing import Iterable
 
 class TestCVManager(BaseCVManager):

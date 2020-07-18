@@ -1,5 +1,5 @@
 from __future__ import annotations
-from CharData.DataSources import CharDataSourceDict, CharDataSourceBase
+from DataSources import CharDataSourceDict, CharDataSourceBase
 from CharData import Parser
 import unittest
 

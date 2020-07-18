@@ -2,7 +2,7 @@ from __future__ import annotations
 from django.db import transaction
 import django.test
 from DBInterface.models import CharModel, CharVersionModel
-from CharData.CharVersionConfig import EMPTY_RECIPE
+from CharVersionConfig import EMPTY_RECIPE
 
 from .test_setup import setup_chars_and_versions
 

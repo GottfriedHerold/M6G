@@ -5,9 +5,9 @@ import warnings
 from importlib import import_module
 from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Optional, List, Deque, Literal, Tuple, Union
 from collections import deque
+from CharGenNG.conditional_log import conditional_log
 
 from django.db import transaction
-from django.conf import settings as django_settings
 
 from .EditModes import EditModes
 from .types import validate_strict_JSON_serializability, PythonConfigRecipe, PythonConfigRecipeDict, \
@@ -15,11 +15,10 @@ from .types import validate_strict_JSON_serializability, PythonConfigRecipe, Pyt
 
 if TYPE_CHECKING:
     from CharData.BaseCharVersion import BaseCharVersion
-    from CharData.DataSources.CharDataSourceBase import CharDataSourceBase
+    from DataSources import CharDataSourceBase
     from DBInterface.models import CharVersionModel
     from .BaseCVManager import BaseCVManager
     from .DataSourceDescription import DataSourceDescription
-    from DBInterface.DBCharVersion import DBCharVersion
 
 
 config_logger = logging.getLogger('chargen.CVConfig')
@@ -102,12 +101,12 @@ class CVConfig:
     @classmethod
     def create_char_version_config(cls, *, from_python: PythonConfigRecipe = None, from_json: str = None,
                                    char_version: BaseCharVersion = None, db_char_version: CharVersionModel = None,
-                                   setup_managers: Literal[True]) -> CVConfig:
+                                   setup_managers: Literal[True], db_write_back: Literal[False]) -> CVConfig:
         """
-        Creates a new char_version_config.
+        Called upon creating a new char in the database, returns a new char_version_config for this.
 
         Note that the difference to calling CVConfig(...) is that CVConfig provides an interface to a Config which
-        is serialized in the database, whereas create_char_version_config is used to create it.
+        is serialized in the database, whereas create_char_version_config is used when creating it.
         It calls on-create hooks on the managers, which may touch the database. Create_char_version_config itself
         does NOT touch the database.
 
@@ -117,6 +116,7 @@ class CVConfig:
         its config entry will have to be overwritten using the result of this call. This is needed because managers may
         need to create db references to db_char_version.
         """
+        assert not db_write_back
         assert setup_managers  # for now. Create_char_version_config always runs setup, essentially just to run checks.
         if transaction.get_autocommit():  # Essentially always a bug. Note that django.test.TestCase wraps everything.
             config_logger.critical("Calling create_char_version_config outside a transaction")
@@ -126,27 +126,22 @@ class CVConfig:
                                       setup_managers=False, validate_setup=False,
                                       validate_syntax=True)
         if new_char_version_config.db_char_version is None:  # This makes little sense outside of specific testing instances.
-            if django_settings.TESTING_MODE:
-                config_logger.info('Called create_char_version_config without an associated db entry')
-            else:
-                config_logger.critical("Called create_char_version_config without an associated db entry.")
+            conditional_log(config_logger, 'Called create_char_version_config without and associated db entry', normal_level='critical', test_level='info')
         new_char_version_config.setup_managers(create=CreateManagerEnum.create_config)
         new_char_version_config._re_init(setup_managers=setup_managers)
         return new_char_version_config
 
-    def destroy_char_version_config(self) -> None:
+    def destroy_char_version_config(self, db_write_back: Literal[False]) -> None:
         """
-        Should be run when the char_version_config is to be deleted from the database. This informs manager
+        Should be run when the char_version_config is about to be deleted from the database. This informs manager
         that they should do some cleanup (typically not required)
         """
+        assert not db_write_back
         if transaction.get_autocommit():  # Essentially always a bug. Note that django.test.TestCase wraps everything.
             config_logger.critical("Calling destroy_char_version_config outside a transaction")
             warnings.warn("destroy_char_version_config should be wrapped in a transaction.", RuntimeWarning)
         if self.db_char_version is None:  # This makes little sense outside of specific testing instances.
-            if django_settings.TESTING_MODE:
-                config_logger.info('Called destroy_char_version_config without an associated db entry')
-            else:
-                config_logger.critical("Called destroy_char_version_config without an associated db entry.")
+            conditional_log(config_logger, 'Called destroy_char_version_config without an associated db entry', normal_level='critical', test_level='info')
         self._re_init(setup_managers=False)
         self.setup_managers(create=CreateManagerEnum.destroy_config)
 
@@ -208,13 +203,14 @@ class CVConfig:
         This function does not care about previous assignments, if any.
         """
         self._char_version = char_version
-        try:  # infer db_char_version from char_version, if possible (and check that it is compatible with db_char_version)
-            char_version: DBCharVersion  # May be actually the case.
-            # may fail with AttributeError (including char_version == None case). char_version.db_instance == None is OK.
+        # infer db_char_version from char_version, if possible (and check that it is compatible with db_char_version)
+        if char_version:
             self._db_char_version = char_version.db_instance
             if db_char_version and db_char_version != self._db_char_version:
                 raise ValueError("Provided char_version's db version and directly provided db_char_version do not match")
-        except AttributeError:  # char_version is None or BaseCharVersion.
+        else:
+            self._db_char_version = None
+        if not self._db_char_version:
             self._db_char_version = db_char_version
 
     def associate_char_version(self, char_version: BaseCharVersion = None, db_char_version: CharVersionModel = None) -> None:
@@ -253,6 +249,10 @@ class CVConfig:
         if self._managers is None:
             raise ValueError("Need to setup managers first")
         return self._managers
+
+    @property
+    def setup_has_run(self, /) -> bool:
+        return self._managers is not None
 
     def setup_managers(self, /, create: CreateManagerEnum = CreateManagerEnum.no_create) -> None:
         """
@@ -293,6 +293,10 @@ class CVConfig:
         return self._char_version
 
     @property
+    def has_char_version(self, /) -> bool:
+        return self._char_version is not None
+
+    @property
     def db_char_version(self, /) -> CharVersionModel:
         """
         Gets the associated DB char version. Note that you might need to reload this from db, as it might be stale.
@@ -301,6 +305,10 @@ class CVConfig:
         if self._db_char_version is None:
             raise ValueError("No db entry associated to this config.")
         return self._db_char_version
+
+    @property
+    def has_db_char_version(self, /) -> bool:
+        return self._db_char_version is not None
 
     @property
     def json_recipe(self, /) -> str:
@@ -325,6 +333,16 @@ class CVConfig:
         :return:
         """
         return self.python_recipe.data_source_order
+
+    def write_back_to_db(self, /) -> None:
+        from DBInterface.models import CharVersionModel
+        if transaction.get_autocommit():
+            raise RuntimeError("writing to db only allowed inside a transaction.")
+        self.db_char_version.refresh_from_db()
+        self._json_recipe = None
+        self.db_char_version.json_config = self.json_recipe
+        self.db_char_version.save()
+
 
     @property
     def edit_mode(self, /) -> EditModes:
@@ -415,7 +433,7 @@ class CVConfig:
         # TODO: Sortedness of data-source description according to group
         return
 
-    def copy_config(self, *, target_db: Optional[CharVersionModel], new_edit_mode: Optional[EditModes], transplant: bool) -> CVConfig:
+    def copy_config(self, *, target_db: Optional[CharVersionModel], new_edit_mode: Optional[EditModes], transplant: bool, db_write_back: Literal[False]) -> CVConfig:
         """
         Creates a new CVConfig from the current one. target_db is the new CharVersionModel this is associated to.
         (target_db == None is for testing only)
@@ -427,6 +445,7 @@ class CVConfig:
         Note that copy_config does NOT save the resulting new CVConfig in the DB. Managers may save data in the db
         associated to the new CharVersion, though.
         """
+        assert not db_write_back
         if (target_db is not None) and transaction.get_autocommit():
             raise warnings.warn("copy_config should be wrapped in a transaction.", RuntimeWarning)
         if new_edit_mode is None:
@@ -441,7 +460,7 @@ class CVConfig:
         new_config.validate_setup()
         return new_config
 
-    def add_manager(self, manager_instruction: ManagerInstruction, /) -> None:
+    def add_manager(self, manager_instruction: ManagerInstruction, /, db_write_back: bool = False) -> None:
         """
         Adds a new manager defined by manager_instructions (in dataclass format) to the current configuration.
 
@@ -485,6 +504,8 @@ class CVConfig:
             self.post_process_setup.popleft()()
         # TODO: Notify other managers?
         self._re_init(setup_managers=True)
+        if db_write_back:
+            self.write_back_to_db()
 
     def _find_manager(self, manager_identifier: Union[BaseCVManager, int], /) -> Tuple[int, BaseCVManager]:
         """
@@ -498,7 +519,7 @@ class CVConfig:
                 return i, manager_identifier
         raise ValueError("manager not found in this config")
 
-    def remove_manager(self, manager_identifier: Union[BaseCVManager, int], /) -> None:
+    def remove_manager(self, manager_identifier: Union[BaseCVManager, int], /, db_write_back: bool = False) -> None:
         """
         Removes the selected manager (given as either an index or the manager itself within (by identity) self.managers)
         """
@@ -526,13 +547,17 @@ class CVConfig:
         # TODO: Notify managers?
         self._json_recipe = None
         self._re_init(setup_managers=True)
+        if db_write_back:
+            self.write_back_to_db()
 
-    def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstruction, /) -> None:
+    def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstruction, /, db_write_back: bool) -> None:
         manager_pos, manager = self._find_manager(manager_identifier)
         manager.change_instruction(new_instruction, self._python_recipe)  # Note: This might change self.py_python_recipe
         self._json_recipe = None
         self._python_recipe.manager_instructions[manager_pos] = new_instruction
         self._re_init(setup_managers=True)
+        if db_write_back:
+            self.write_back_to_db()
 
     @classmethod
     def validate_syntax(cls, py: PythonConfigRecipe, /) -> None:
@@ -588,4 +613,3 @@ class CVConfig:
                     raise ValueError("Type identifier %s is already registered with a different creator" % type_id)
         cls.known_types[type_id] = creator
         config_logger.info("Registered CV %s" % type_id)
-

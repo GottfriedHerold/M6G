@@ -8,8 +8,7 @@ from django.db import models, transaction, IntegrityError
 # from . import CharVersionModel
 from .user_model import CGUser, CGGroup
 from .meta import MyMeta, CHAR_NAME_MAX_LENGTH, CHAR_DESCRIPTION_MAX_LENGTH, CV_DESCRIPTION_MAX_LENGTH, RELATED_MANAGER_TYPE, MANAGER_TYPE
-from CharData.CharVersionConfig.EditModes import EditModes, EditModesChoices, ALLOWED_REFERENCE_TARGETS
-from CharData.CharVersionConfig import CVConfig, PythonConfigRecipe
+from CharVersionConfig import EditModes, EditModesChoices, ALLOWED_REFERENCE_TARGETS, CVConfig, PythonConfigRecipe
 if TYPE_CHECKING:
     from .permission_models import UserPermissionsForChar, GroupPermissionsForChar, CharUsers
 
@@ -260,7 +259,7 @@ class CharVersionModel(models.Model):
                 # Re-create the config with the associated primary key and tell CVConfig that it is a new version.
                 # (This may trigger hooks in the associated managers)
 
-                new_config = CVConfig.create_char_version_config(from_python=new_config.python_recipe, db_char_version=new_char_version, setup_managers=True)
+                new_config = CVConfig.create_char_version_config(from_python=new_config.python_recipe, db_char_version=new_char_version, setup_managers=True, db_write_back=False)
                 # In theory, CVConfig.create_char_version_config might change the config:
                 if json_config != new_config.json_recipe:
                     new_char_version.json_config = new_config.json_recipe
@@ -320,7 +319,7 @@ class CharVersionModel(models.Model):
                 CVReferencesModel.objects.create(source=new_version, target=parent, reason_str="Overwrite target",
                                                  ref_type=CVReferencesModel.ReferenceType.OVERWRITE.value)
             parent_config = CVConfig(from_json=parent.json_config, validate_syntax=True, setup_managers=True, validate_setup=True, db_char_version=parent)
-            new_config = parent_config.copy_config(target_db=new_version, new_edit_mode=edit_mode, transplant=transplant)
+            new_config = parent_config.copy_config(target_db=new_version, new_edit_mode=edit_mode, transplant=transplant, db_write_back=False)
             new_version.json_config = new_config.json_recipe
             new_version.edit_mode = new_config.edit_mode
             new_version.edit_counter += 1

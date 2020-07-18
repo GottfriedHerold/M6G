@@ -25,7 +25,7 @@ do not edit the data source object directly, but through methods provided by Bas
 
 from __future__ import annotations
 from datetime import datetime, timezone
-from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator, Final, TYPE_CHECKING
+from typing import List, Optional, Union, Any, Tuple, Generator, Iterable, Callable, TypeVar, Dict, Iterator, Final, TYPE_CHECKING, ClassVar
 from functools import wraps
 import itertools
 
@@ -34,10 +34,11 @@ from . import Parser
 from . import CharExceptions
 from . import ListBuffer
 
-from .CharVersionConfig import CVConfig, PythonConfigRecipe
+from CharVersionConfig import CVConfig, PythonConfigRecipe
 
 if TYPE_CHECKING:
-    from CharData.DataSources.CharDataSourceBase import CharDataSourceBase
+    from DataSources import CharDataSourceBase
+    from CharVersionConfig import ManagerInstruction, BaseCVManager
 
 
 _Ret_Type = TypeVar("_Ret_Type")
@@ -54,13 +55,20 @@ class BaseCharVersion:
     # these (object-level) attributes are possibly written to by the default implementation.
     # To be overwritten by @property - objects in derived classes to tie to db.
 
-    creation_time: datetime  # only written to if we creation_time is explicitly passed.
+    creation_time: datetime  # only written to we creation_time is explicitly passed.
     last_change: datetime  # updated at each change
     description: str
 
+    db_instance: ClassVar = None  # overwritten in subclasses
+    db_write_back = False  # Controls write-back default argument of configuration manipulation interface.
+    read_permission: bool = True  # may be overridden on an instance-by-instance basis
+    write_permission: bool = True  # may be overridden on an instance-by-instance basis
+
     _config: Optional[CVConfig]
 
-    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None, **kwargs):
+    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None,
+                 read_permission: bool = None, write_permission: bool = None,
+                 **kwargs):
         """
         Creates a BaseCharConfig. You should set either initial_list or config/py_config/json_config to initialize its lists (if config is set,
         it will use config to set up the lists). Note that config is the preferred way; the data_sources interface exists
@@ -79,13 +87,19 @@ class BaseCharVersion:
         # may need to to obtain the primary key of the CharVersion object.)
         if (data_sources is None) + (config is None) + (py_config is None) + (json_config is None) != 3:
             raise ValueError("Need to provide exactly one of data_sources or some form of config")
+        if read_permission is not None:
+            self.read_permission = read_permission
+        if write_permission is not None:
+            self.write_permission = write_permission
+        if self.write_permission:
+            assert self.read_permission
         if data_sources is None:
             if py_config is not None:
                 self._config = CVConfig(from_python=py_config, char_version=self, setup_managers=True)
             elif json_config is not None:
                 self._config = CVConfig(from_json=json_config, char_version=self, setup_managers=True)
             else:
-                config.char_version = self
+                config.associate_char_version(char_version=self)
                 self._config = config
                 self._config.setup_managers()
             self._data_sources = self._config.make_data_sources()
@@ -120,6 +134,23 @@ class BaseCharVersion:
             self.description: str = kwargs["description"]
         self._update_list_lookup_info()
         return
+
+    def add_manager(self, manager_instruction: ManagerInstruction, /, db_write_back: bool = None) -> None:
+        if db_write_back is None:
+            db_write_back = self.db_write_back
+        self.config.add_manager(manager_instruction, db_write_back=db_write_back)
+
+    def remove_manager(self, manager_identifier: Union[BaseCVManager, int], /, db_write_back: bool = None) -> None:
+        if db_write_back is None:
+            db_write_back = self.db_write_back
+        self.config.remove_manager(manager_identifier, db_write_back=db_write_back)
+
+    def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstruction, /, db_write_back: bool = None) -> None:
+        if db_write_back is None:
+            db_write_back = self.db_write_back
+        self.config.change_manager(manager_identifier, new_instruction, db_write_back=db_write_back)
+
+
 
     class _Decorators:
         @staticmethod

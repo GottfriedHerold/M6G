@@ -1,6 +1,6 @@
 from __future__ import annotations
 from CharData.BaseCharVersion import BaseCharVersion
-from .models import CharVersionModel
+from DBInterface.models import CharVersionModel
 import contextlib
 import logging
 

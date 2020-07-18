@@ -1,5 +1,5 @@
 from __future__ import annotations
-from CharData.DataSources import CharDataSourceDict, CharDataSourceBase
+from DataSources import CharDataSourceDict, CharDataSourceBase
 from CharData import BaseCharVersion
 import unittest
 
@@ -27,7 +27,7 @@ class TestBaseCharVersion(unittest.TestCase):
         list_6.description = "desc_generic"
         list_6.dict_type = "type_generic"
 
-        cv = BaseCharVersion.BaseCharVersion(data_sources=[list_1, list_2, list_3, list_4, list_5, list_6])
+        cv = BaseCharVersion(data_sources=[list_1, list_2, list_3, list_4, list_5, list_6])
         assert cv.get_data_source(target_desc="desc1") is list_1
         assert cv.get_data_source(target_desc="desc2") is list_2
         assert cv.get_data_source(target_desc="desc_generic") is list_5

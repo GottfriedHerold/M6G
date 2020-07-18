@@ -1,7 +1,7 @@
-from .CharVersionConfig import CVConfig, BaseCVManager
+from CharVersionConfig import CVConfig, BaseCVManager
 from typing import Iterable, TYPE_CHECKING
 if TYPE_CHECKING:
-    from CharData.DataSources.CharDataSourceBase import CharDataSourceBase
+    from DataSources import CharDataSourceBase
 
 def test_cv_config():
 

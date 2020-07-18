@@ -1,12 +1,12 @@
 from __future__ import annotations
 from importlib import import_module
-from typing import ClassVar, Type, Optional, Final
+from typing import ClassVar, Type, Optional
 from copy import deepcopy
 
 import django.test
 
-from CharData.CharVersionConfig import BaseCVManager, CVConfig, EMPTY_RECIPE_DICT, PythonConfigRecipeDict, ManagerInstructionDict, ManagerInstructionDictBase, ManagerInstructionGroups, PythonConfigRecipe, EditModes
-from DBInterface.tests import setup_users_and_groups, _setup_users_and_groups_return_class, setup_chars_and_versions, _setup_chars_and_versions_return_class
+from CharVersionConfig import BaseCVManager, EMPTY_RECIPE_DICT, PythonConfigRecipeDict, ManagerInstructionDict, ManagerInstructionDictBase, ManagerInstructionGroups, PythonConfigRecipe, EditModes
+from DBInterface.tests import setup_chars_and_versions, _setup_chars_and_versions_return_class
 from DBInterface.models import CharVersionModel
 
 

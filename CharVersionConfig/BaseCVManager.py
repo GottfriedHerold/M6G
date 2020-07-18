@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .types import ManagerInstruction, ManagerInstructionDictBase, ManagerInstructionDict, PythonConfigRecipe, CreateManagerEnum
     from .DataSourceDescription import DataSourceDescription
     from DBInterface.models import CharVersionModel
-    from CharData.DataSources import CharDataSourceBase
+    from DataSources import CharDataSourceBase
 
 
 class BaseCVManager:

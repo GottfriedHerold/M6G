@@ -3,9 +3,9 @@ Defines data source classes that relate to the database.
 """
 from __future__ import annotations
 from DBInterface.models import MANAGER_TYPE, ShortDictEntry, LongDictEntry, DictEntry, SimpleDBToDict, CharVersionModel
-from CharData.DataSources import CharDataSourceBase
+from DataSources.CharDataSourceBase import CharDataSourceBase
 import logging
-from typing import TYPE_CHECKING, List, ClassVar
+from typing import ClassVar
 
 
 logger = logging.getLogger('chargen.dbdatasources')

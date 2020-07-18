@@ -1,7 +1,7 @@
 from django.test import TestCase
 from copy import deepcopy
 from DBInterface.models import CGUser, CharModel, CharVersionModel
-from DBInterface.DBCharVersion import DBCharVersion
+from BackendInterface.DBCharVersion import DBCharVersion
 
 class CVManagerTest(TestCase):
 

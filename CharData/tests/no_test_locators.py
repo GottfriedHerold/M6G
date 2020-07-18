@@ -1,4 +1,4 @@
-from . import BaseCharVersion
+from CharData import BaseCharVersion
 
 # Needs to be redone.
 def test_lookup_order(empty3cv: BaseCharVersion):

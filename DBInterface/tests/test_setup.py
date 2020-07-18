@@ -8,8 +8,8 @@ from django.db import transaction
 import django.test
 from DBInterface.models import CGUser, CGGroup, CharModel, CharVersionModel, CVReferencesModel
 from DBInterface.models import get_default_group
-from CharData.CharVersionConfig import EMPTY_RECIPE
-from CharData.CharVersionConfig.EditModes import EditModes
+from CharVersionConfig import EMPTY_RECIPE
+from CharVersionConfig import EditModes
 from typing import TypedDict
 
 class _setup_users_and_groups_return_class(TypedDict):
