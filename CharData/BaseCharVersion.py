@@ -82,7 +82,8 @@ class BaseCharVersion:
 
     _config: Optional[CVConfig]
 
-    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None, write_permission: bool = None,
+    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None,
+                 write_permission: bool = None,
                  **kwargs):
         """
         Creates a BaseCharConfig. You should set either initial_list or config/py_config/json_config to initialize its lists (if config is set,
@@ -142,6 +143,9 @@ class BaseCharVersion:
         raise NotImplemented
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        raise NotImplemented
+
+    def _save(self):
         raise NotImplemented
 
     class _Decorators:
