@@ -58,20 +58,57 @@ class NoReadPermissionError(CharPermissionError):
 
 class BaseCharVersion:
     """
-    This class models a set of data sources that makes up a character. Note that this is supposed to be subclassed
-    in order to add synchronization abilities with a database.
+    This class models a version of a given character. It (or rather, some derived classes) also acts as the interface
+    for the fronted <-> backend: all modifications / reads of a given character version must go through this interface.
+
+    On a high level, a char version consists of
+    -   some purely descriptive metadata (such as creation_time, timestamp of last edit, a custom description). These
+        are exclusively used to let a user select the correct version.
+    -   A list of dict-like data_sources (instances of classes derived from CharDataSourceBase).
+        Each of those holds key-value pairs such as 'attr.strength': 79
+        (data_sources may hold both parsed data such as 79 or the string '79' that the user actually input)
+    -   metadata as an instance of the class CVConfig. This metadata is used, among other things, to define
+        which data sources are actually present.
+
+    BaseCharVersion only implements some basic interface to CVConfig, to CharDataSourceBase and to the descriptive metadata.
+    Furthermore, it implements the complicated lookup logic that we use to select values from the data_sources and is responsible
+    for providing an interface to the Chargen Expression Language that allows users to input formulas.
+
+    Note that BaseCharVersion is supposed to be subclassed in order to add synchronization abilities with a database.
+    BaseCharVersion itself is only used to simplify testing without requiring database management.
+
+    Derived classes are supposed to be used in a with ... clause such that all operations go through a single database
+    transaction.
     """
 
-    # these (object-level) attributes are possibly written to by the default implementation.
-    # To be overwritten by @property - objects in derived classes to tie to db.
+    # These attributes possibly exist in derived classes. They are included here in the base class for consistency and
+    # to define __str__. The default implementation in the base class here also writes to last_changed.
+    # If given as args to __init__ they are written to, otherwise, they are NOT set by __init__ at all!
 
+    # Those attributes are overwritten by @property - objects in derived classes to tie to db.
+    #
+    # In derived classes, some of the property descriptors are non-trivial and/or read-only!
+    # (Note that creation_time and name are read-only if tied to db and last_changed is managed by django/db)
+    # The only attribute written to from the base class outside of __init__ (upon explicit request) to is last_changed;
+    # all such writes go through _update_last_changed()
     creation_time: datetime  # only written to we creation_time is explicitly passed.
-    last_change: datetime  # updated at each change
-    description: str
+    last_changed: datetime  # updated at each change
+    description: str = "nondescript"
+    name: str
+    version_name: str = "unnamed"
 
     db_instance: ClassVar = None  # overwritten in subclasses
-    db_write_back = False  # Controls write-back default argument of configuration manipulation interface.
-    write_permission: bool = True  # may be overridden on an instance-by-instance basis
+    # db_write_back controls the write-back default argument of the configuration manipulation interface.
+    # If set, functions such as cls.add_manager(...) will by default write their changes back to the db.
+    db_write_back = False
+    # mutating methods check write_permissions and raise an exception if not True.
+    # Note that we lack a read_permission attribute: If such a read_permission was not True, __init__ should
+    # raise an exception: we cannot do anything with the BaseCharVersion anyway.
+    # Changing permissions during the lifetime of a BaseCharVersion needs to go through a dedicated interface and is not supported at the moment.
+
+    # Note that permissions are dropped in __init__, taking into account the edit_mode of the config, if given.
+    data_write_permission: bool = True  # Overridden on an instance-by-instance basis in derived classes.
+    config_write_permission: bool = True  # Overridden on an instance-by-instance basis in derived classes.
 
     # Internally used to speed up lookups, these are set in self._update_list_lookup_info:
     _unrestricted_lists: list = []  # indices of data sources that contain unrestricted keys in lookup order
@@ -82,9 +119,9 @@ class BaseCharVersion:
 
     _config: Optional[CVConfig]
 
-    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: 'CVConfig' = None, py_config: 'PythonConfigRecipe' = None, json_config: str = None,
-                 write_permission: bool = None,
-                 **kwargs):
+    def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: CVConfig = None, py_config: PythonConfigRecipe = None, json_config: str = None,
+                 data_write_permission: bool = None, config_write_permission: bool = None,
+                 creation_time: datetime = None, last_changed: datetime = None, description: str = None, name: str = None, version_name: str = None):
         """
         Creates a BaseCharConfig. You should set either initial_list or config/py_config/json_config to initialize its lists (if config is set,
         it will use config to set up the lists). Note that config is the preferred way; the data_sources interface exists
@@ -92,7 +129,11 @@ class BaseCharVersion:
 
         If config: CVConfig is used, config must NOT have run setup_managers() yet. This is done here.
 
-        Other keyword-only arguments, if present, forces writing to self; (creation_time, last_change, description).
+        data_write_permissions and config_write_permission define the permissions for acting through this BaseCharVersion.
+        Note that, if set and we have a config, they must be compatible with the edit_mode.
+        If None, we use a default (taking edit_mode into account)
+
+        Other keyword-only arguments, if present, forces writing to self; (creation_time, last_changed, description).
         These values are never read back in the base class (but written to from multiple places) and are provided for derived classes.
         """
 
@@ -103,8 +144,6 @@ class BaseCharVersion:
         # may need to to obtain the primary key of the CharVersion object.)
         if (data_sources is None) + (config is None) + (py_config is None) + (json_config is None) != 3:
             raise ValueError("Need to provide exactly one of data_sources or some form of config")
-        if write_permission is not None:
-            self.write_permission = write_permission
         if data_sources is None:
             if py_config is not None:
                 self._config = CVConfig(from_python=py_config, char_version=self, setup_managers=True)
@@ -123,20 +162,37 @@ class BaseCharVersion:
             self._data_sources = data_sources
             self._config = None
 
-        # These parameters are only set if they occur in kwargs at all
-        # (Note that creation_time = None is handled differently from creation_time not present)
-        # We expect that derived classes override self.creation_time as a @property to tie it to a database.
-        # So we need to keep the option
-        if "creation_time" in kwargs:
-            if kwargs["creation_time"]:
-                self.creation_time: datetime = kwargs["creation_time"]
-            else:
-                self.creation_time: datetime = datetime.now(timezone.utc)
-            self.last_change: datetime = self.creation_time
-        elif "last_change" in kwargs:
-            self.last_change: datetime = kwargs["last_change"]
-        if "description" in kwargs:
-            self.description: str = kwargs["description"]
+        if data_write_permission is not None:
+            self.data_write_permission = data_write_permission
+        if config_write_permission is not None:
+            self.config_write_permission = config_write_permission
+
+        # TODO: if direct data source interface goes away, may simplify and remove if self._config
+        if self._config and not self._config.edit_mode.may_edit_data():
+            if data_write_permission:
+                raise ValueError("Explicit data_write_permissions incompatible with edit_mode")
+            self.data_write_permission = False
+
+        if self._config and not self._config.edit_mode.may_edit_config():
+            if config_write_permission:
+                raise ValueError("Explicit config_write_permissions incompatible with edit_mode")
+            self.config_write_permission = False
+
+        # TODO: Might go away completely.
+        if last_changed:
+            self.last_changed = last_changed
+        if creation_time:
+            self.creation_time = creation_time
+            self._update_last_changed()
+        if description:
+            self.description = description
+            self._update_last_changed()
+        if name:
+            self.name = name
+            self._update_last_changed()
+        if version_name:
+            self.version_name = version_name
+            self._update_last_changed()
         self._updated_config()
 
     def __enter__(self):
@@ -147,6 +203,22 @@ class BaseCharVersion:
 
     def _save(self):
         raise NotImplemented
+
+    def _update_last_changed(self) -> None:
+        """
+        Updates self.last_changed to the current time.
+        """
+        self.last_changed = datetime.now(timezone.utc)
+
+    @property
+    def name(self, /) -> str:
+        return getattr(self, '_name', self.version_name)
+    @name.setter
+    def name(self, value, /) -> None:
+        self._name = value
+
+    def __str__(self) -> str:
+        return self.name
 
     class _Decorators:
         @staticmethod
@@ -181,31 +253,42 @@ class BaseCharVersion:
         def requires_write_permission(method):
             @wraps(method)
             def wrapped_method(self: BaseCharVersion, *args, **kwargs):
-                if not self.write_permission:
+                if not self.data_write_permission:
                     raise NoWritePermissionError
                 return method(self, *args, **kwargs)
             return wrapped_method
 
-    @_Decorators.requires_write_permission
+        @staticmethod
+        def requires_config_write_permission(method):
+            @wraps(method)
+            def wrapped_method(self: BaseCharVersion, *args, **kwargs):
+                if not self.config_write_permission:
+                    raise NoWritePermissionError
+                return method(self, *args, **kwargs)
+
+            return wrapped_method
+
+    @_Decorators.requires_config_write_permission
     def add_manager(self, manager_instruction: ManagerInstruction, /, db_write_back: bool = None) -> None:
         if db_write_back is None:
             db_write_back = self.db_write_back
         self.config.add_manager(manager_instruction, db_write_back=db_write_back)
+        self._updated_config()
 
-    @_Decorators.requires_write_permission
+    @_Decorators.requires_config_write_permission
     def remove_manager(self, manager_identifier: Union[BaseCVManager, int], /, db_write_back: bool = None) -> None:
-        if not self.write_permission:
-            raise NoWritePermissionError
         if db_write_back is None:
             db_write_back = self.db_write_back
         self.config.remove_manager(manager_identifier, db_write_back=db_write_back)
+        self._updated_config()
 
-    @_Decorators.requires_write_permission
+    @_Decorators.requires_config_write_permission
     def change_manager(self, manager_identifier: Union[BaseCVManager, int], new_instruction: ManagerInstruction, /,
                        db_write_back: bool = None) -> None:
         if db_write_back is None:
             db_write_back = self.db_write_back
         self.config.change_manager(manager_identifier, new_instruction, db_write_back=db_write_back)
+        self._updated_config()
 
     @property
     def data_sources(self) -> List[CharDataSourceBase]:
@@ -216,20 +299,20 @@ class BaseCharVersion:
         """
         Should only be called from debug code, really. May be removed in the future.
         """
-        if not self.write_permission:
+        if not self.config_write_permission:
             raise NoWritePermissionError
         self._data_sources = new_lists
         self._update_list_lookup_info()
 
     @property
-    def config(self) -> Optional['CVConfig']:
+    def config(self) -> Optional[CVConfig]:
         return self._config
 
-    #  setter for config? We basically would need to create a new object
+    #  No setter for config. We basically would need to create a new object.
 
     def _updated_config(self):
         if self._config:  # TODO: Basically always true... This is just needed for the legacy interface of directly giving data sources. Will be removed.
-            self._data_sources = self._config.make_data_sources()
+            self._data_sources = self._config.data_sources
         self._update_list_lookup_info()
 
     def _update_list_lookup_info(self) -> None:
@@ -307,7 +390,7 @@ class BaseCharVersion:
         @_Decorators.requires_write_permission
         def set(self, source: CharDataSourceBase, key: str, value: object) -> None:
             source[key] = value
-            self.last_change = datetime.now(timezone.utc)
+            self._update_last_changed()
 
     if TYPE_CHECKING:
         def bulk_set(self, key_values: Dict[str, object], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
@@ -317,7 +400,7 @@ class BaseCharVersion:
         def bulk_set(self, source: CharDataSourceBase, key_values: Dict[str, object]) -> None:
             source.bulk_set_items(key_values)
             if key_values:
-                self.last_change = datetime.now(timezone.utc)
+                self._update_last_changed()
 
     if TYPE_CHECKING:
         def set_input(self, key: str, value: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
@@ -326,7 +409,7 @@ class BaseCharVersion:
         @_Decorators.requires_write_permission
         def set_input(self, source: CharDataSourceBase, key: str, value: str) -> None:
             source.set_input(key, value)
-            self.last_change = datetime.now(timezone.utc)
+            self._update_last_changed()
 
     if TYPE_CHECKING:
         def bulk_set_input(self, key_values: Dict[str, str], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
@@ -336,7 +419,7 @@ class BaseCharVersion:
         def bulk_set_input(self, source: CharDataSourceBase, key_values: Dict[str, str]) -> None:
             source.bulk_set_inputs(key_values)
             if key_values:
-                self.last_change = datetime.now(timezone.utc)
+                self._update_last_changed()
 
     if TYPE_CHECKING:
         def delete(self, key: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
@@ -349,7 +432,7 @@ class BaseCharVersion:
             Trying to deleting keys that do not exist in the data_source may trigger an exception, as per Python's default.
             """
             del source[key]
-            self.last_change = datetime.now(timezone.utc)
+            self._update_last_changed()
 
     if TYPE_CHECKING:
         def bulk_delete(self, keys: Iterable[str], *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> None: ...
@@ -359,7 +442,7 @@ class BaseCharVersion:
         def bulk_delete(self, source: CharDataSourceBase, keys: Iterable[str]) -> None:
             source.bulk_del_items(keys)
             if keys:
-                self.last_change = datetime.now(timezone.utc)
+                self._update_last_changed()
 
     if TYPE_CHECKING:
         def get_input(self, key: str, default: str, *, where: Union[CharDataSourceBase, int, None] = None, target_type: Optional[str] = None, target_desc: Optional[str] = None) -> str: ...
@@ -706,7 +789,7 @@ class BaseCharVersion:
             # This code relies on the order set in _normalize_action
 
             if action_id <= 3:  # action_ids 1 to 3 are write operations.
-                if not self.write_permission:
+                if not self.data_write_permission:
                     raise NoWritePermissionError
                 changed = True
             while action_id == 1:  # set_input
@@ -738,5 +821,5 @@ class BaseCharVersion:
         except StopIteration:
             pass
         if changed:
-            self.last_change = datetime.now(timezone.utc)
+            self._update_last_changed()
         return result

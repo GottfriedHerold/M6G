@@ -1,11 +1,14 @@
 from __future__ import annotations
 import contextlib
 import logging
-
+from typing import TYPE_CHECKING
 
 from CharData import BaseCharVersion, NoReadPermissionError
 from DBInterface.models import CharVersionModel, CGUser
 from DBInterface.TransactionClassWrapper import TransactionContextManagerWrapper
+
+if TYPE_CHECKING:
+    from CharVersionConfig import EditModes
 
 logger = logging.getLogger("chargen.db_char_version")
 
@@ -20,11 +23,16 @@ class DBCharVersion(BaseCharVersion):
     # This is used internally to avoid costly updates to last_changed after every sub-request.
 
     _needs_saving: bool  # Records whether we need to save metadata back to db upon clearing delay_saving
+    #
+    db_write_back = True
+    # set on an instance-by-instance basis. This is just a more conservative default to guard against bugs.
+    data_write_permission = False
+    config_write_permission = False
 
     def __init__(self, *, pk=None, db_instance: CharVersionModel = None,
-                 write_permission: bool = None, for_user: CGUser = None,
+                 data_write_permission: bool = None, config_write_permission: bool = None, for_user: CGUser = None,
                  _delay_save_until_transaction: bool = False,
-                 **kwargs):
+                 version_name: str = None, description: str = None):
         """
         Initializes a DBCharVersion object that is associated with a given CharVersionModel database instance.
         Note that the instance needs to already exist in the database and is expected to be fresh.
@@ -32,35 +40,44 @@ class DBCharVersion(BaseCharVersion):
         Either pk or db_instance must be given to specify the CharVersionModel instance either by a primary key in
         the database or the model instance itself. Invalid pk's will raise CharVersionModel.DoesNotExist (subclass of Exception)
         TODO: Log and reraise as 404 or ValueError?
-        Other parameters are passed to super().__init__. This can be used to
+
+        version_name and description are passed to super().__init__. This can be used to
         cause metadata to be written to, which triggers saving in the db via the overridden properties.
-        TODO: Specify allowed **kwargs
         """
 
         if (pk is None) == (db_instance is None):
             raise ValueError("Need to give either pk or db_instance")
-        if (write_permission is None) == (for_user is None):
-            raise ValueError("Need to give either write_permission or for_user")
+        if (data_write_permission is None) == (for_user is None):
+            raise ValueError("Need to give either data_write_permission or for_user")
+        if (config_write_permission is None) == (for_user is None):
+            raise ValueError("Need to give either config_write_permission or for_user")
         if db_instance:
             if db_instance.pk is None:
                 raise RuntimeWarning("associated db_instance is not in database")
             self._db_instance = db_instance
         else:
             self._db_instance = CharVersionModel.objects.get(pk=pk)  # Will raise exception if pk is not in db.
-        if write_permission is None:
+
+        # edit mode is stored both in the config and in the model.
+        if data_write_permission is None:
             if for_user.may_write_char(char=self._db_instance):
-                self.write_permission = True
+                self.data_write_permission = self._db_instance.edit_mode.may_edit_data()
             else:
                 if not for_user.may_read_char(char=self._db_instance):
                     raise NoReadPermissionError
-                self.write_permission = False
+                self.data_write_permission = False
         else:
-            self.write_permission = write_permission
+            if data_write_permission and not self._db_instance.edit_mode.may_edit_data():
+                raise ValueError("passed value of data_write_permissions conflicts with edit_mode")
+            self.data_write_permission = data_write_permission
+
+
+
         self._delay_saving = _delay_save_until_transaction
         self._needs_saving = False
 
         with self.delayed_metadata_saving():
-            super().__init__(json_config=self._db_instance.json_config, **kwargs)
+            super().__init__(json_config=self._db_instance.json_config, version_name=version_name, description=description)
 
     @classmethod
     def atomic(cls, /, delayed_metadata_saving: bool = False, *args, **kwargs):
@@ -84,6 +101,10 @@ class DBCharVersion(BaseCharVersion):
             return TransactionContextManagerWrapper(*args, _cls=cls, _at_exit=_at_exit, **kwargs)
         else:
             return TransactionContextManagerWrapper(*args, _cls=cls, **kwargs)
+
+    @property
+    def edit_mode(self, /) -> EditModes:
+        return self._db_instance.edit_mode
 
     @property
     def db_instance(self, /) -> CharVersionModel:
@@ -135,6 +156,7 @@ class DBCharVersion(BaseCharVersion):
                 raise ValueError("Cannot delete attribute bound to db")
 
             if create_setter:
+                @BaseCharVersion._Decorators.requires_write_permission
                 def setter(s: DBCharVersion, value, /):
                     setattr(s._db_instance, name, value)
                     s._save()
@@ -143,8 +165,23 @@ class DBCharVersion(BaseCharVersion):
             return property(getter, setter, deleter, doc)
 
     # This makes e.g. self.creation_time equivalent to self._db_instance.creation_time with a possibly delayed setter.
-    creation_time = _Meta.bind_to_db('creation_time')
-    last_change = _Meta.bind_to_db('last_changed')
+    creation_time = _Meta.bind_to_db('creation_time', create_setter=False)
     description = _Meta.bind_to_db('description')
     name = _Meta.bind_to_db('name', create_setter=False)
     version_name = _Meta.bind_to_db('version_name')
+
+    # Special case: The value of last_changed in the DB is actually set automatically whenever we call CharVersionModel.save() (and synced).
+    # As a consequence, _db_instance.last_changed is out of sync with db if we delay any saving.
+    @property
+    def last_change(self, /):
+        if self._needs_saving:
+            self._save(force=True)
+        return self._db_instance.last_changed
+
+    @last_change.setter
+    def last_change(self, value, /):
+        self._save()
+
+    def _update_last_changed(self) -> None:
+        self._save()
+
