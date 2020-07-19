@@ -794,7 +794,7 @@ class AST_Lambda(AST):
 class AST_List(AST):
     typedesc = 'List'
     # default init does The Right Thing (TM): self.child is a tuple of child AST objects.
-    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
+    def eval_ast(self, data_list: BaseCharVersion, context: dict):
         ret = []
         for c in self.child:
             c_eval = c.eval_ast(data_list, context)
@@ -806,7 +806,7 @@ class AST_List(AST):
 class AST_Dict(AST):
     typedesc = 'Dict'
     # default init does The Right Thing (TM)
-    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
+    def eval_ast(self, data_list: BaseCharVersion, context: dict):
         assert len(self.child) % 2 == 0
         ret = {}
         it = iter(self.child)
@@ -826,7 +826,7 @@ class AST_Dict(AST):
 
 class AST_Set(AST):
     typedesc = 'Set'
-    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
+    def eval_ast(self, data_list: BaseCharVersion, context: dict):
         ret = []
         for c in self.child:
             c_eval = c.eval_ast(data_list, context)
