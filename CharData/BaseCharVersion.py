@@ -33,28 +33,33 @@ from . import Regexps
 from . import Parser
 from . import CharExceptions
 from . import ListBuffer
-
 from CharVersionConfig import CVConfig, PythonConfigRecipe
 
 if TYPE_CHECKING:
     from DataSources import CharDataSourceBase
     from CharVersionConfig import ManagerInstruction, BaseCVManager
 
-
 _Ret_Type = TypeVar("_Ret_Type")
 _Arg_Type = TypeVar("_Arg_Type")
 
 _ALL_SUFFIX: Final = "_all"
 
+
+# TODO: Derive from Other Exception(s):
+#  Candidates are django's PermissionDenied (To make django return the correct http error to the user)
+#  or CharData.CharExceptions.CharGenException.
 class CharPermissionError(Exception):
     pass
+
 
 class NoWritePermissionError(CharPermissionError):
     pass
 
+
 # This may be raised from __init__ in a subclass. Included here for consistency.
 class NoReadPermissionError(CharPermissionError):
     pass
+
 
 class BaseCharVersion:
     """
@@ -101,14 +106,14 @@ class BaseCharVersion:
     # db_write_back controls the write-back default argument of the configuration manipulation interface.
     # If set, functions such as cls.add_manager(...) will by default write their changes back to the db.
     db_write_back = False
+
     # mutating methods check write_permissions and raise an exception if not True.
-    # Note that we lack a read_permission attribute: If such a read_permission was not True, __init__ should
+    # We do not need read_permission attributes: If such a read_permission was not True, __init__ should instead
     # raise an exception: we cannot do anything with the BaseCharVersion anyway.
     # Changing permissions during the lifetime of a BaseCharVersion needs to go through a dedicated interface and is not supported at the moment.
-
     # Note that permissions are dropped in __init__, taking into account the edit_mode of the config, if given.
-    data_write_permission: bool = True  # Overridden on an instance-by-instance basis in derived classes.
-    config_write_permission: bool = True  # Overridden on an instance-by-instance basis in derived classes.
+    data_write_permission: bool = True  # Overridden on an instance-by-instance basis and in derived classes.
+    config_write_permission: bool = True  # Overridden on an instance-by-instance basis and in derived classes.
 
     # Internally used to speed up lookups, these are set in self._update_list_lookup_info:
     _unrestricted_lists: list = []  # indices of data sources that contain unrestricted keys in lookup order
@@ -117,7 +122,11 @@ class BaseCharVersion:
     _desc_lookup: dict = {}  # first index of data source for a given description
     _default_target: Optional[int] = None  # index that writes go by default
 
-    _config: Optional[CVConfig]
+    _config: Optional[CVConfig]  # TODO: May remove Optional if direct data_sources interface goes away.
+    # Important: Access to members of _config needs to go through self.config, not self._config
+    # because self.config is non-trivially overridden in subclasses.
+
+    _data_sources: List[CharDataSourceBase]
 
     def __init__(self, *, data_sources: List[CharDataSourceBase] = None, config: CVConfig = None, py_config: PythonConfigRecipe = None, json_config: str = None,
                  data_write_permission: bool = None, config_write_permission: bool = None,
@@ -127,21 +136,15 @@ class BaseCharVersion:
         it will use config to set up the lists). Note that config is the preferred way; the data_sources interface exists
         exclusively for debugging and testing purposes, may not be present in subclasses, and may be removed altogether.
 
-        If config: CVConfig is used, config must NOT have run setup_managers() yet. This is done here.
+        If config: CVConfig is used, config must NOT have run setup_managers() yet. This is done here in __init__.
 
         data_write_permissions and config_write_permission define the permissions for acting through this BaseCharVersion.
         Note that, if set and we have a config, they must be compatible with the edit_mode.
         If None, we use a default (taking edit_mode into account)
 
-        Other keyword-only arguments, if present, forces writing to self; (creation_time, last_changed, description).
-        These values are never read back in the base class (but written to from multiple places) and are provided for derived classes.
+        Other keyword-only arguments (creation_time, last_changed, descriptionm name, version_name), if present,
+        force writing to self. They are provided for compatibility with derived classes. (see above)
         """
-
-        # Note that we do not have a make_from_config staticmethod that calls __init__, because
-        # config needs to be associated to the CharVersion object before config.setup_managers() and config.make_data_sources() is called.
-        # (This should not really matter much for config.setup_managers, but we need to give config.make_data_source()
-        # the option to inspect and modify the CharVersion object. In particular, data sources that refer to the DB
-        # may need to to obtain the primary key of the CharVersion object.)
         if (data_sources is None) + (config is None) + (py_config is None) + (json_config is None) != 3:
             raise ValueError("Need to provide exactly one of data_sources or some form of config")
         if data_sources is None:
@@ -152,8 +155,8 @@ class BaseCharVersion:
             else:
                 self._config = config
                 config.associate_char_version(char_version=self)
-                self._config.setup_managers()
-                self._data_sources = None  # set from self._updated_config()
+                self.config.setup_managers()
+            # self._data_sources is set from self._updated_config()
         else:
             # TODO: Might go away completely.
             from django.conf import settings
@@ -168,15 +171,16 @@ class BaseCharVersion:
             self.config_write_permission = config_write_permission
 
         # TODO: if direct data source interface goes away, may simplify and remove if self._config
-        if self._config and not self._config.edit_mode.may_edit_data():
-            if data_write_permission:
-                raise ValueError("Explicit data_write_permissions incompatible with edit_mode")
-            self.data_write_permission = False
-
-        if self._config and not self._config.edit_mode.may_edit_config():
-            if config_write_permission:
-                raise ValueError("Explicit config_write_permissions incompatible with edit_mode")
-            self.config_write_permission = False
+        if self._config:
+            edit_mode = self.config.edit_mode
+            if not not edit_mode.may_edit_data():
+                if data_write_permission:
+                    raise ValueError("Explicitly set data_write_permissions incompatible with edit_mode")
+                self.data_write_permission = False
+            if not edit_mode.may_edit_config():
+                if config_write_permission:
+                    raise ValueError("Explicitly set config_write_permissions incompatible with edit_mode")
+                self.config_write_permission = False
 
         # TODO: Might go away completely.
         if last_changed:
@@ -202,6 +206,9 @@ class BaseCharVersion:
         raise NotImplemented
 
     def _save(self):
+        """
+        Saves back to db. Implemented in derived classes.
+        """
         raise NotImplemented
 
     def _update_last_changed(self) -> None:
@@ -213,6 +220,7 @@ class BaseCharVersion:
     @property
     def name(self, /) -> str:
         return getattr(self, '_name', self.version_name)
+
     @name.setter
     def name(self, value, /) -> None:
         self._name = value
@@ -312,7 +320,7 @@ class BaseCharVersion:
 
     def _updated_config(self):
         if self._config:  # TODO: Basically always true... This is just needed for the legacy interface of directly giving data sources. Will be removed.
-            self._data_sources = self._config.data_sources
+            self._data_sources = self.config.data_sources
         self._update_list_lookup_info()
 
     def _update_list_lookup_info(self) -> None:

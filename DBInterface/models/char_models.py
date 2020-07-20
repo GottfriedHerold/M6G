@@ -9,11 +9,12 @@ from django.db import models, transaction, IntegrityError
 from .user_model import CGUser, CGGroup
 from .meta import MyMeta, CHAR_NAME_MAX_LENGTH, CHAR_DESCRIPTION_MAX_LENGTH, CV_DESCRIPTION_MAX_LENGTH, RELATED_MANAGER_TYPE, MANAGER_TYPE
 from CharVersionConfig import EditModes, EditModesChoices, ALLOWED_REFERENCE_TARGETS, CVConfig, PythonConfigRecipe
+
 if TYPE_CHECKING:
     from .permission_models import UserPermissionsForChar, GroupPermissionsForChar, CharUsers
 
-
 char_logger = logging.getLogger('chargen.database.char')  # for logging char-based management
+
 
 class CharModel(models.Model):
     """
@@ -37,11 +38,11 @@ class CharModel(models.Model):
     group_level_permissions = models.ManyToManyField(CGGroup, through='GroupPermissionsForChar', related_name='allowed_chars')
     users = models.ManyToManyField(CGUser, through='CharUsers', related_name='chars', related_query_name='char')
 
-    objects: 'MANAGER_TYPE[CharModel]'
-    versions: 'RELATED_MANAGER_TYPE[versions]'
-    direct_user_permissions: 'RELATED_MANAGER_TYPE[UserPermissionsForChar]'
-    group_permissions: 'RELATED_MANAGER_TYPE[GroupPermissionsForChar]'
-    user_data_set: 'RELATED_MANAGER_TYPE[CharUsers]'
+    objects: MANAGER_TYPE[CharModel]
+    versions: RELATED_MANAGER_TYPE[versions]
+    direct_user_permissions: RELATED_MANAGER_TYPE[UserPermissionsForChar]
+    group_permissions: RELATED_MANAGER_TYPE[GroupPermissionsForChar]
+    user_data_set: RELATED_MANAGER_TYPE[CharUsers]
 
     def __str__(self) -> str:
         return str(self.name)
@@ -65,7 +66,7 @@ class CharModel(models.Model):
         char_logger.info("User {creator} Created new char with name {name}".format(creator=creator, name=name))
         return new_char
 
-    def create_root_char_version(self, *args, **kwargs) -> 'CharVersionModel':
+    def create_root_char_version(self, *args, **kwargs) -> CharVersionModel:
         """
         Creates a new char version for this char (shortcut for a method of CharModel)
         Refer to CharVersionModel.create_root_char_version for details
@@ -160,13 +161,13 @@ class CharVersionModel(models.Model):
     # TODO: We have on_delete = models.PROTECT now, pre_delete signal should fail.
     # NOTE: parent is mostly for informational purposes.
     # Actual semantic references are tracked by CVReferencesModel (with refers_to and referred_by reverses here)
-    parent: 'Optional[CharVersionModel]' = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True,
-                                                             related_name='children', related_query_name='child')
+    parent: Optional[CharVersionModel] = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True,
+                                                           related_name='children', related_query_name='child')
     # Note that these should be thought of as a m2m model trough CVReferencesModel.
     # (We need multiple relations between the same pair to be possible, which ManyToMany models do not support)
-    references_from: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse to foreign key from CVReferencesModel
-    references_to: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse to foreign key from CVReferencesModel
-    children: 'RELATED_MANAGER_TYPE[CharVersionModel]'  # reverse to foreign key parent
+    references_from: RELATED_MANAGER_TYPE[CharVersionModel]  # reverse to foreign key from CVReferencesModel
+    references_to: RELATED_MANAGER_TYPE[CharVersionModel]  # reverse to foreign key from CVReferencesModel
+    children: RELATED_MANAGER_TYPE[CharVersionModel]  # reverse to foreign key parent
 
     # JSON metadata to initialize the data sources
     json_config: str = models.TextField(blank=True)
@@ -175,10 +176,10 @@ class CharVersionModel(models.Model):
     # owning char
     owner: CharModel = models.ForeignKey(CharModel, on_delete=models.CASCADE, related_name='versions', related_query_name='char_version')
 
-    objects: 'MANAGER_TYPE[CharVersionModel]'
+    objects: MANAGER_TYPE[CharVersionModel]
 
     @classmethod
-    def make_dummy(cls, pk: int) -> 'CharVersionModel':
+    def make_dummy(cls, pk: int) -> CharVersionModel:
         """
         Creates a "dummy object with a given primary key". This key is not necessarily present in the db and at any rate
         should not be saved.
@@ -217,7 +218,7 @@ class CharVersionModel(models.Model):
     @classmethod
     def create_root_char_version(cls, *, version_name: str = None, description: str = None,
                                  json_config: str = None, python_config: PythonConfigRecipe = None, owner: CharModel,
-                                 edit_mode: EditModes = None) -> 'CharVersionModel':
+                                 edit_mode: EditModes = None) -> CharVersionModel:
         """
         Creates a brand new (root) char version that does not have a parent.
 
@@ -273,7 +274,7 @@ class CharVersionModel(models.Model):
         return new_char_version
 
     @classmethod
-    def derive_char_version(cls, *, parent: 'CharVersionModel', owner: CharModel = None, edit_mode: EditModes = None) -> 'CharVersionModel':
+    def derive_char_version(cls, *, parent: CharVersionModel, owner: CharModel = None, edit_mode: EditModes = None) -> CharVersionModel:
         """
         Makes a new char version based on a previous one.
         Both owner and parent are assumed to be saved in the db.
@@ -338,6 +339,7 @@ class CharVersionModel(models.Model):
     def check_reference_validity(self):
         CVReferencesModel.check_reference_validity_for_char_version(char_version=self)
 
+
 class CVReferencesModel(models.Model):
     """
     Intermediate class for CharVersion -> CharVersion semantic references.
@@ -355,6 +357,7 @@ class CVReferencesModel(models.Model):
     """
     class Meta(MyMeta):
         pass
+
     class ReferenceType(models.IntegerChoices):
         OVERWRITE = 1
 
@@ -362,7 +365,7 @@ class CVReferencesModel(models.Model):
     target: CharVersionModel = models.ForeignKey(CharVersionModel, on_delete=models.PROTECT, related_name='references_to')
     reason_str: str = models.CharField(max_length=200, blank=False, null=False)
     ref_type: int = models.IntegerField(choices=ReferenceType.choices, default=ReferenceType.OVERWRITE.value)
-    objects: MANAGER_TYPE['CVReferencesModel']
+    objects: MANAGER_TYPE[CVReferencesModel]
 
     def check_validity(self) -> None:
         """
@@ -384,7 +387,7 @@ class CVReferencesModel(models.Model):
                 raise IntegrityError("CharVersion references overwrite target, but target has other references to it.")
 
     @classmethod
-    def check_reference_validity_for_char_version(cls, char_version: CharVersionModel) -> None:
+    def check_reference_validity_for_char_version(cls, /, char_version: CharVersionModel) -> None:
         """
         Checks validity constraints for all References involving char_version (assumed to be in sync with DB)
         """

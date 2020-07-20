@@ -1,8 +1,8 @@
 """
 This file defines the CharDataSourceDict class: A simple char data source class that just wraps two dicts.
 """
-
 from __future__ import annotations
+
 from.CharDataSourceBase import CharDataSourceBase
 
 

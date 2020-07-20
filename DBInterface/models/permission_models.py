@@ -25,7 +25,7 @@ class UserPermissionsForChar(models.Model):
     may_read: bool = models.BooleanField(default=True)
     may_write: bool = models.BooleanField(default=True)
 
-    objects: 'MANAGER_TYPE[UserPermissionsForChar]'
+    objects: MANAGER_TYPE[UserPermissionsForChar]
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -119,7 +119,7 @@ class CharUsers(models.Model):
                                                                         on_delete=models.PROTECT,
                                                                         null=True,
                                                                         related_name='affected_char_permissions')
-    objects: 'MANAGER_TYPE[CharUsers]'
+    objects: MANAGER_TYPE[CharUsers]
 
     @staticmethod
     def update_char_user(*, char: CharModel, user: 'CGUser') -> Optional['CharUsers']:
@@ -130,7 +130,7 @@ class CharUsers(models.Model):
 
         user_logger.info('Updating permissions for char %(char)s and user %(user)s' % {'char': char, 'user': user})
         with transaction.atomic():
-            char_user: 'CharUsers'
+            char_user: CharUsers
             try:
                 char_user = CharUsers.objects.get(char=char, user=user)
                 user_logger.info('Pre-existing permission')

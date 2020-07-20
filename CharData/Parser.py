@@ -49,8 +49,6 @@ from ply.lex import TOKEN
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
 from .CharExceptions import DataError, CGParseException, CGEvalException
 
-# We need BaseCharVersion for type annotations. Unfortunately, this would create circular imports, which are OK only
-# while statically type-checking, but not otherwise.
 if TYPE_CHECKING:
     from . import BaseCharVersion
 
@@ -148,6 +146,7 @@ tokens: Final = [
              'CORECONSTANT',  # hard-coded constants (which may be of type function)
          ] + keywords
 
+# one-character tokens such as '+' are defined in the special variable literals.
 
 # PLY.lex generates tokenizer rules from definitions with names t_foo(token) and the special variable named literals.
 # token.type determines the type of token we have (defaults to "foo" in t_foo definitions unless foo is a special name),
@@ -236,7 +235,7 @@ def t_error(token, /):
 # e.g. whitespace in string literals), but may act as separators.
 t_ignore = ' \t\n\r\f\v'  # ignore (ASCII) whitespace. We complain about Non-Ascii unicode whitespace.
 
-# t_foo = string specifications and literals take precedence in order of length. So // will match IDIV rather than / twice.
+# t_foo = string specifications and literals take precedence in order of length. So "//" will match IDIV rather than "/" twice.
 t_IDIV = r"//"
 t_EQUALS = r"=="
 t_NEQUALS = r"!="
@@ -322,7 +321,7 @@ class AST:
     def __str__(self, /):  # Debug only, may be overridden in leaf nodes. Note that self.typedesc is always overridden.
         return self.typedesc + '[' + ", ".join([str(x) for x in self.child]) + ']'
 
-    def eval_ast(self, data_list: 'BaseCharVersion.BaseCharVersion', context: dict):
+    def eval_ast(self, data_list: BaseCharVersion, context: dict):
         """
         evaluates the ast within the given context.
         IMPORTANT: eval_ast can return lambdas which may capture data_list and context possibly *by reference*.
@@ -590,6 +589,7 @@ class AST_Funcname(AST):
     def eval_ast(self, data_list, context):
         return data_list.get(self.function_name, locator=data_list.find_function(self.function_name.lower()))
 
+
 # We might actually parse core_constants as Literals (of type e.g. function) rather than doing this at
 # the evaluation stage. Note, however, that this would make serializing ASTs more difficult.
 class AST_CoreConstant(AST):
@@ -605,6 +605,7 @@ class AST_CoreConstant(AST):
 
     def eval_ast(self, data_list, context):
         return core_constants[self.name]
+
 
 class AST_Argname(AST):
     """ Abstract syntax tree object (leaf) for variables (e.g. $a appearing in a function FUN[$a]($a*$a) or $Name.
@@ -791,9 +792,11 @@ class AST_Lambda(AST):
 
         return fun
 
+
 class AST_List(AST):
     typedesc = 'List'
     # default init does The Right Thing (TM): self.child is a tuple of child AST objects.
+
     def eval_ast(self, data_list: BaseCharVersion, context: dict):
         ret = []
         for c in self.child:
@@ -803,9 +806,11 @@ class AST_List(AST):
             ret.append(c_eval)
         return ret
 
+
 class AST_Dict(AST):
     typedesc = 'Dict'
     # default init does The Right Thing (TM)
+
     def eval_ast(self, data_list: BaseCharVersion, context: dict):
         assert len(self.child) % 2 == 0
         ret = {}
@@ -824,8 +829,10 @@ class AST_Dict(AST):
             ret[c_kw] = c_val
         return ret
 
+
 class AST_Set(AST):
     typedesc = 'Set'
+
     def eval_ast(self, data_list: BaseCharVersion, context: dict):
         ret = []
         for c in self.child:
@@ -834,6 +841,7 @@ class AST_Set(AST):
                 return c_eval
             ret.append(c_eval)
         return frozenset(ret)
+
 
 start = 'root_expression'  # start is used by PLY yacc to determine the BNF roof.
 
@@ -874,6 +882,7 @@ def p_expression_literal(p, /):
                   | FLOAT
                   | INT"""
     p[0] = AST_Literal(p[1])
+
 
 # noinspection PySingleQuotedDocstring
 def p_coreconstant(p, /):
@@ -988,10 +997,10 @@ def p_expression_cond(p, /):
     p[0] = AST_Cond(p[3], p[5], p[7])
 
 
-#noinspection PySingleQuotedDocstring
+# noinspection PySingleQuotedDocstring
 def p_expression_cond_if_then_else(p, /):
-     "expression : IF expression THEN expression ELSE expression"
-     p[0] = AST_Cond(p[2], p[4], p[6])
+    "expression : IF expression THEN expression ELSE expression"
+    p[0] = AST_Cond(p[2], p[4], p[6])
 
 
 # noinspection PySingleQuotedDocstring
@@ -1082,6 +1091,7 @@ def p_argument_nameval(p, /):
     p[0].namebind = p[1]
     p[0].typedesc = p[0].typedesc + ' bound to ' + p[0].namebind  # += actually would work (which I find strange)
 
+
 # noinspection PySingleQuotedDocstring
 def p_argument_nameval_as_string(p, /):
     "argument : STRING '=' expression"
@@ -1089,6 +1099,7 @@ def p_argument_nameval_as_string(p, /):
     p[0].argtype = _FUNARG_NAMEVAL
     p[0].namebind = p[1]
     p[0].typedesc = p[0].typedesc + ' bound to ' + p[0].namebind
+
 
 def p_arglist(p, /):
     """arglist :
@@ -1108,6 +1119,7 @@ def p_arglist_nonempty(p, /):
     else:
         p[0] = p[1] + [p[3]]
 
+
 def p_expressionlist_nonempty(p, /):
     """expressionlist_nonempty : expression
                                | expressionlist_nonempty ',' expression"""
@@ -1115,6 +1127,7 @@ def p_expressionlist_nonempty(p, /):
         p[0] = [p[1]]
     else:
         p[0] = p[1] + [p[3]]
+
 
 def p_list(p, /):
     """expression : '[' ']'
@@ -1125,6 +1138,7 @@ def p_list(p, /):
     else:
         p[0] = AST_List(*p[2])
 
+
 def p_dictlist_nonempty(p, /):
     """dictlist_nonempty : expression ':' expression
                          | dictlist_nonempty ',' expression ':' expression"""
@@ -1132,6 +1146,7 @@ def p_dictlist_nonempty(p, /):
         p[0] = [p[1], p[3]]
     else:
         p[0] = p[1] + [p[3], p[5]]
+
 
 def p_dict(p, /):
     """expression : '{' '}'
@@ -1142,10 +1157,12 @@ def p_dict(p, /):
     else:
         p[0] = AST_Dict(*p[2])
 
+
 def p_set(p, /):
     """expression : '{' expressionlist_nonempty '}'
                   | '{' expressionlist_nonempty ',' '}'"""
     p[0] = AST_Set(*p[2])
+
 
 # noinspection PySingleQuotedDocstring
 def p_function_call(p, /):

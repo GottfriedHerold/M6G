@@ -7,12 +7,16 @@ from __future__ import annotations
 class CharGenException(Exception):
     pass
 
+
 class CGParseException(CharGenException):
     pass
+
 
 class CGEvalException(CharGenException):
     pass
 
+
+# TODO: Reconsider error handling when finishing CharGen Expression Language.
 class DataError:
     """
     Used to indicate that a database entry is faulty.
@@ -24,5 +28,6 @@ class DataError:
             self.reason = str(exception)
         else:
             self.reason = reason
+
     def __str__(self):
         return self.reason

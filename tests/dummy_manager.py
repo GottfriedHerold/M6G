@@ -6,6 +6,7 @@ from DataSources import CharDataSourceBase, CharDataSourceDict
 from CharVersionConfig import BaseCVManager, CreateManagerEnum, DataSourceDescription, CVConfig, ManagerInstruction
 from typing import Iterable
 
+
 class TestCVManager(BaseCVManager):
     num_data_sources: int
     log: list

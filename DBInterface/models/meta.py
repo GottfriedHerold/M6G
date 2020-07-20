@@ -12,6 +12,7 @@ KEY_MAX_LENGTH: Final = 240  # max length of dict keys (for chars)
 CG_USERNAME_MAX_LENGTH: Final = 40  # max length of usernames
 MAX_GROUP_NAME_LENGTH: Final = 150
 
+
 # Only used for static type checking and to ensure Pycharm's autocompletion works.
 # MANAGER_TYPE[ModelClass] is the type of ModelClass.objects.all() / ModelClass.objects
 # (we ignore the differences here)
@@ -19,6 +20,7 @@ MAX_GROUP_NAME_LENGTH: Final = 150
 _Z = TypeVar('_Z')
 class MANAGER_TYPE(Generic[_Z], models.QuerySet, models.Manager):
     def __iter__(self) -> Iterator[_Z]: ...
+
 
 # When setting a foreign key attribute in model A to model B, django automatically adds an a_set attribute to B.
 # (name can be customized and usually is). Setting a type hint

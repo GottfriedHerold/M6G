@@ -342,7 +342,6 @@ class CVConfig:
         self.db_char_version.json_config = self.json_recipe
         self.db_char_version.save()
 
-
     @property
     def edit_mode(self, /) -> EditModes:
         return self._edit_mode
@@ -527,7 +526,7 @@ class CVConfig:
         data_source_descriptions = self.data_source_descriptions  # To force computing them before calling delete_manager()
         source_descriptions_left_to_remove: int = len(manager.data_source_descriptions)
         manager.delete_manager()
-        assert self.python_recipe.manager_instructions[manager_pos] is manager.instruction
+        assert self.python_recipe.manager_instructions[manager_pos] is manager.manager_instruction
         del self.python_recipe.manager_instructions[manager_pos]
         # Remove all data_source_descriptions with this manager:
         i = 0

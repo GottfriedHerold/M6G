@@ -59,6 +59,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'CharGenNG.urls'
 
+
 def urlarg(*args, **kwargs):
     """
     Used in jinja2 environment.
@@ -66,7 +67,11 @@ def urlarg(*args, **kwargs):
     """
     return jinja2.Markup('"' + reverse(*args, **kwargs) + '"')
 
+
 def http_jinja_env(**options):
+    """
+    Jinja2 settings for http output.
+    """
     env = jinja2.Environment(**options)
     env.globals.update({
         'static': static,
@@ -75,12 +80,14 @@ def http_jinja_env(**options):
         'DEBUG_PRINT': (lambda x: str(x)+""),
     })
 
+    # This makes errors in templates louder.
     class MyDebugUndefined(jinja2.DebugUndefined):
         def __str__(self):
             return "Undefined:" + super().__str__()
     logger = logging.getLogger('chargen.undefined_templates')
     env.undefined = jinja2.make_logging_undefined(logger=logger, base=MyDebugUndefined)
     return env
+
 
 TEMPLATES = [
     {

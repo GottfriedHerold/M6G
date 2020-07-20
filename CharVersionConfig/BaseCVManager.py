@@ -1,3 +1,11 @@
+"""
+This file defines the BaseCVManager class, which is the base class for all CVManagers.
+Every char version has a set of CVManager instances managed via CharVersionConfig.CVConfig.
+Each of these managers represents a set of configuration options, determines data sources, LaTeX outputs and what
+input pages to display.
+BaseCVManager itself just defines the interface with some meaningful defaults. While it provides absolutely no
+functionality (such as data sources etc.) by itself, it is a perfectly valid CVManager.
+"""
 from __future__ import annotations
 from typing import List, ClassVar, Optional, Iterable, TYPE_CHECKING
 # from enum import IntEnum
@@ -13,7 +21,7 @@ if TYPE_CHECKING:
 
 class BaseCVManager:
     """
-    Manager that does nothing. For testing and serves as base class.
+    CVManager that does nothing. For testing and serves as base class.
     """
 
     # List of DataSourceDescriptions that is displayed to the user when this manager is present.
@@ -22,14 +30,27 @@ class BaseCVManager:
     # May be overwritten by a property.
     data_source_descriptions: List[DataSourceDescription] = []
 
-    # NOTE: Due to an __init_subclass__ hook that looks at __dict__, these get automatically overwritten in subclasses unless explicitly set (not recommended).
+    # module and type_id are required for serialization. Due to an __init_subclass__ hook that looks at __dict__,
+    # these get automatically overwritten in subclasses unless explicitly set (not recommended).
     module: ClassVar[str]  # Set to cls.__module__ (after class creation).
     type_id: ClassVar[str]  # Set to cls.__name__ (after class creation).
-    instruction: ManagerInstruction
+
+    # manager_instruction is the ManagerInstruction that was used to create the instance. Note that instruction refers
+    # to the instruction contained in cv_config.python_recipe by identity.
+    manager_instruction: ManagerInstruction
+
+    # managing CVConfig instance. This can be used to check the presence of other CVManagers.
     cv_config: CVConfig
 
     # Called manually for BaseCVManager itself.
     def __init_subclass__(cls, module: str = None, type_id: str = None, register: bool = True, **kwargs):
+        """
+        Init subclass hook: When deriving subclasses class Derived(BaseCVManager, module=..., type_id=..., register=...)
+        we automatically set Derived.module and Derived.type_id and register Derived. This is required for correct
+        serialization.
+        Setting register to False as in class AbstractManager(BaseCVManager, register=False): ...
+        can be used to avoid registering AbstractManager; this should be done for abstract CVManager classes.
+        """
         super().__init_subclass__(**kwargs)
         if module is not None:
             if m:=cls.__dict__.get('module') is not None:
@@ -50,7 +71,7 @@ class BaseCVManager:
     def __init__(self, /, *args, cv_config: CVConfig, manager_instruction: ManagerInstruction, **kwargs):
         """
         Called by CVConfig.setup_managers() to initialize the manager
-        May be overwritten in a subclass, but you need to ensure self.instruction and self.cv_config are set.
+        May be overwritten in a subclass, but you need to ensure self.manager_instruction and self.cv_config are set.
         :param cv_config: calling cv_config
         :param manager_instruction: refers to the entry in the calling cv_config's python_recipe.managers that was responsible for creating this.
         :param args: arbitrary arguments from the recipe.
@@ -59,7 +80,7 @@ class BaseCVManager:
         self.args = args
         self.kwargs = kwargs
         self.cv_config = cv_config
-        self.instruction = manager_instruction  # Important: Must not copy, but bind.
+        self.manager_instruction = manager_instruction  # Important: Must not copy, but bind.
 
     def post_setup(self, /, create: CreateManagerEnum) -> None:
         """
@@ -74,7 +95,6 @@ class BaseCVManager:
         """
         pass
 
-
     @classmethod
     def recipe_base_dict(cls, /) -> ManagerInstructionDictBase:
         """
@@ -88,8 +108,9 @@ class BaseCVManager:
         """
         Used to re-create the arguments used to make this instance. No need to overwrite.
         """
-        return self.instruction.as_dict()
+        return self.manager_instruction.as_dict()
 
+    # noinspection PyUnusedLocal
     def copy_config(self, target_recipe: PythonConfigRecipe, /, *, transplant: bool, target_db: Optional[CharVersionModel]) -> None:
         """
         Called for each manager on the source CharVersion when the containing CharVersion is copied.
@@ -104,7 +125,7 @@ class BaseCVManager:
 
         Both copy_config and the the deque's callables modify its target_recipe argument.
         """
-        target_recipe.manager_instructions.append(self.instruction.make_copy())
+        target_recipe.manager_instructions.append(self.manager_instruction.make_copy())
 
     def delete_manager(self):
         """Called before the manager is deleted from a config."""
@@ -127,11 +148,12 @@ class BaseCVManager:
         target_list.extend(self._get_data_sources(description))
 
     def validate_config(self, /):
-        if self.instruction.module != type(self).module:
+        if self.manager_instruction.module != type(self).module:
             raise ValueError("CVConfig validation failed: Registered module differs from saved module. Did you forget to create a db migration after a file rename during code reorganization?")
-        if self.instruction.type_id != type(self).type_id:
+        if self.manager_instruction.type_id != type(self).type_id:
             raise ValueError("CVConfig validation failed: Registered type_id differs from saved type_id. Did you forget to create a db migration after a rename of a CVManager class?")
 
 
-# BaseCVManager is actually a perfectly valid CVManager (that does absolutely nothing) itself. This is required to make it usable:
+# BaseCVManager is actually a perfectly valid CVManager (that does absolutely nothing) itself.
+# This is required to make it usable:
 BaseCVManager.__init_subclass__()

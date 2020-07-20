@@ -70,18 +70,18 @@ class CGUser(AbstractBaseUser):
     username: str = models.CharField(max_length=CG_USERNAME_MAX_LENGTH, unique=True)
     USERNAME_FIELD = 'username'  # database field that is used as username in the login.
     REQUIRED_FIELDS = ['email']  # list of additional mandatory fields queried in the "manage.py createsuperuser" script.
-    objects: 'MANAGER_TYPE[CGUser]' = CGUserManager()  # object manager. We can't use the default one
+    objects: MANAGER_TYPE[CGUser] = CGUserManager()  # object manager. We can't use the default one
     is_active: bool = models.BooleanField(default=True)  # internally expected by Django.
     is_admin: bool = models.BooleanField(default=False)  # for the admin user
     email: str = models.EmailField(verbose_name='email address', max_length=255)
-    groups: 'RELATED_MANAGER_TYPE[CGGroup]' = models.ManyToManyField('CGGroup', related_name='users')
+    groups: RELATED_MANAGER_TYPE[CGGroup] = models.ManyToManyField('CGGroup', related_name='users')
 
     # backlinks from other models that refer to CGUser go here:
-    created_chars: 'RELATED_MANAGER_TYPE[CharModel]'
-    directly_allowed_chars: 'RELATED_MANAGER_TYPE[CharModel]'
-    direct_char_permissions: 'RELATED_MANAGER_TYPE[UserPermissionsForChar]'
-    chars: 'RELATED_MANAGER_TYPE[CharModel]'
-    char_data_set: 'RELATED_MANAGER_TYPE[CharUsers]'
+    created_chars: RELATED_MANAGER_TYPE[CharModel]
+    directly_allowed_chars: RELATED_MANAGER_TYPE[CharModel]
+    direct_char_permissions: RELATED_MANAGER_TYPE[UserPermissionsForChar]
+    chars: RELATED_MANAGER_TYPE[CharModel]
+    char_data_set: RELATED_MANAGER_TYPE[CharUsers]
 
     def __str__(self) -> str:
         return self.username
@@ -121,12 +121,12 @@ class CGUser(AbstractBaseUser):
     def has_module_perms(self, perm, obj=None) -> bool:
         return self.is_admin
 
-    def may_read_char(self, *, char: 'Union[CharModel, CharVersionModel]') -> bool:
+    def may_read_char(self, *, char: Union[CharModel, CharVersionModel]) -> bool:
         """Does this user have read access to char"""
         from .permission_models import CharUsers
         return CharUsers.user_may_read(user=self, char=char)
 
-    def may_write_char(self, *, char: 'Union[CharModel, CharVersionModel]') -> bool:
+    def may_write_char(self, *, char: Union[CharModel, CharVersionModel]) -> bool:
         """Does this user have read/write access to char"""
         from .permission_models import CharUsers
         return CharUsers.user_may_write(user=self, char=char)
@@ -137,16 +137,16 @@ class CGGroup(models.Model):
         pass
     name: str = models.CharField(max_length=MAX_GROUP_NAME_LENGTH, unique=True, blank=False)
 
-    objects: 'MANAGER_TYPE[CGGroup]'
-    users: 'RELATED_MANAGER_TYPE[CGUser]'
-    allowed_chars: 'RELATED_MANAGER_TYPE[CharModel]'
-    char_permissions: 'RELATED_MANAGER_TYPE[GroupPermissionsForChar]'
+    objects: MANAGER_TYPE[CGGroup]
+    users: RELATED_MANAGER_TYPE[CGUser]
+    allowed_chars: RELATED_MANAGER_TYPE[CharModel]
+    char_permissions: RELATED_MANAGER_TYPE[GroupPermissionsForChar]
 
     def __str__(self) -> str:
         return self.name
 
     @classmethod
-    def create_group(cls, name, *, initial_users: Iterable[CGUser]) -> 'CGGroup':
+    def create_group(cls, name, *, initial_users: Iterable[CGUser]) -> CGGroup:
         with transaction.atomic():
             try:
                 new_group: CGGroup = cls.objects.create(name=name)

@@ -54,6 +54,7 @@ from .EditModes import EditModes
 
 # May be changed to dict!
 
+
 class ManagerInstructionGroups(Enum):
     default = 'default'
     core = 'core'
@@ -68,6 +69,7 @@ class ManagerInstructionDict(ManagerInstructionDictBase):
     args: list
     kwargs: dict
     group: str  # key to ManagerInstructionsGroup
+
 
 @dataclasses.dataclass
 class ManagerInstruction:
@@ -94,6 +96,7 @@ class PythonConfigRecipeDict(TypedDict):
     data_source_order: List[int]
     manager_instructions: List[ManagerInstructionDict]
 
+
 @dataclasses.dataclass
 class PythonConfigRecipe:
     edit_mode: EditModes
@@ -111,6 +114,7 @@ class PythonConfigRecipe:
 
     def make_copy(self, /) -> PythonConfigRecipe:
         return dataclasses.replace(self)
+
 
 def validate_strict_JSON_serializability(arg, /) -> None:
     """

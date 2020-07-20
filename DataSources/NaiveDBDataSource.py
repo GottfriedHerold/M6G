@@ -2,13 +2,15 @@
 Defines data source classes that relate to the database.
 """
 from __future__ import annotations
-from DBInterface.models import MANAGER_TYPE, ShortDictEntry, LongDictEntry, DictEntry, SimpleDBToDict, CharVersionModel
-from DataSources.CharDataSourceBase import CharDataSourceBase
 import logging
 from typing import ClassVar
 
+from DBInterface.models import MANAGER_TYPE, ShortDictEntry, LongDictEntry, DictEntry, SimpleDBToDict, CharVersionModel
+from DataSources.CharDataSourceBase import CharDataSourceBase
+
 
 logger = logging.getLogger('chargen.dbdatasources')
+
 
 class NaiveDBDataSource(CharDataSourceBase):
     dict_type = "ShortDB"
@@ -38,6 +40,7 @@ class NaiveDBDataSource(CharDataSourceBase):
         if default_write is not None:
             self.default_write = default_write
         self.input_data = SimpleDBToDict(manager=manager, char_version_model=char_version_model)
+
 
 class LongEntryNaiveDBDataSource(NaiveDBDataSource):
     _default_manager = LongDictEntry.objects

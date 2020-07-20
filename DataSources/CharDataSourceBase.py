@@ -5,10 +5,11 @@ It implements the common interface and some sensible defaults that simplify deri
 
 from __future__ import annotations
 from typing import Union, Mapping, MutableMapping, Any, Iterable, Dict, Optional, ClassVar
+import logging
 
 from CharData import Parser, Regexps
-import logging
 logger = logging.getLogger("chargen.data_sources")
+
 
 class CharDataSourceBase:
     """
@@ -88,7 +89,9 @@ class CharDataSourceBase:
     def __getitem__(self, key: str) -> Any:
         """
         Gets the parsed item stored under this key.
-        TODO: Is raising KeyError on non-existent keys a requirement? Alternative is doing arbitrary DataSource-dependent other things like raising a different exception.
+
+        TODO: Is raising KeyError on non-existent keys a requirement?
+        The alternative is doing arbitrary DataSource-dependent other things like raising a different exception.
         """
         if self.stores_parsed_data:
             return self.parsed_data[key]
@@ -194,5 +197,3 @@ class CharDataSourceBase:
 
     def __str__(self, /) -> str:
         return "Data source of type " + self.dict_type + ": " + self.description
-
-

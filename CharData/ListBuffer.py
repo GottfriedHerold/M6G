@@ -21,18 +21,19 @@ from __future__ import annotations
 from typing import Iterable, Iterator, Union
 
 
-
 class _IterBuffer:
     """
     encapsulates a buffer for iterable it. Notably, self.values is filled with the results from it on demand.
     The logic what constitutes demand is in LazyIterList
     """
     __slots__ = ['base_iterator', 'values', 'computed_values', 'max_len']
+
     def __init__(self, it: Iterable, /):
         self.base_iterator: Iterator = iter(it)  # iterator that is buffered by self
         self.values: list = []  # buffer
         self.computed_values: int = 0  # length of self.values
         self.max_len: int = -1  # if we hit StopIteration when trying to get values[i], we set max_len to i
+
 
 class LazyIterList:
     """
@@ -44,7 +45,7 @@ class LazyIterList:
     lazy_iter_buffer: _IterBuffer
     position: int
 
-    def __init__(self, it: "Union[Iterable, LazyIterList]", /):
+    def __init__(self, it: Union[Iterable, LazyIterList], /):
         try:  # If it is a LazyIterList, we can reuse the existing _IterBuffer for efficiency, we just need to adjust the position.
             self.lazy_iter_buffer = it.lazy_iter_buffer
             self.position = it.position
@@ -54,7 +55,7 @@ class LazyIterList:
             self.position = 0
         assert isinstance(self.lazy_iter_buffer, _IterBuffer)
 
-    def __iter__(self, /) -> 'LazyIterList':  # Note that this does not return itself, but rather a copy of itself. Returning self would
+    def __iter__(self, /) -> LazyIterList:  # Note that this does not return itself, but rather a copy of itself. Returning self would
         # actually work due to how we use it, but copying is more consistent. Technically, we should have a separate
         # iterator / iterable class, but there is basically no need for that:
         # (The classes would have identical __dict__ and __init__, with the iterable having no __next__ and __iter__

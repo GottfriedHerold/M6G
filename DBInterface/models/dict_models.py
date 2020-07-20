@@ -7,6 +7,7 @@ from django.db import models
 from .meta import MyMeta, KEY_MAX_LENGTH, MAX_INPUT_LENGTH, MANAGER_TYPE
 from .char_models import CharVersionModel
 
+
 class DictEntry(models.Model):
     class Meta(MyMeta):
         abstract = True
@@ -58,6 +59,7 @@ class LongDictEntry(DictEntry):
 class SimpleDBToDict(abc.MutableMapping):
     """
     Wrapper that allows to treat models.DictEntry (and derived types) for a specific CharVersion like a dictionary.
+    (with str keys and values)
 
     Usage: SimpleDBToDict(manager, char version). Manager will typically be models.DictEntry.objects
     Can then be used to create a DataSource based on it. This is not very optimized, but will do for now.
@@ -73,27 +75,27 @@ class SimpleDBToDict(abc.MutableMapping):
         self.main_manager = manager
         self.manager = manager.filter(char_version=self.char_version_model)
 
-    def __getitem__(self, item: str) -> str:
+    def __getitem__(self, item: str, /) -> str:
         try:
             return self.manager.get(key=item).value
         except ObjectDoesNotExist:
             raise KeyError
 
-    def __setitem__(self, key: str, value: str):
+    def __setitem__(self, key: str, value: str, /) -> None:
         self.main_manager.update_or_create(defaults={'value': value}, key=key, char_version=self.char_version_model)
 
-    def __delitem__(self, key: str):
+    def __delitem__(self, key: str, /) -> None:
         f = self.manager.filter(key=key)
         if not f.exists():
             raise KeyError(key)
         f.delete()
 
-    def __contains__(self, item: str) -> bool:
+    def __contains__(self, item: str, /) -> bool:
         return self.manager.filter(key=item).exists()
 
-    def __len__(self):
+    def __len__(self, /) -> int:
         return self.manager.all().count()
 
     # NOTE: The resulting items() dictview is fairly inefficient.
-    def __iter__(self):
+    def __iter__(self, /):
         return map(lambda x: x.key, iter(self.manager.all()))

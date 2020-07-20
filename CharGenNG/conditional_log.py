@@ -6,6 +6,7 @@ from logging import Logger
 
 _Levels = Literal['debug', 'info', 'error', 'critical', 'warning', 'exception', None]
 
+
 def conditional_log(logger: Logger, *args, normal_level: _Levels = 'critical', test_level: _Levels = 'info', **kwargs):
     if settings.TESTING_MODE:
         if test_level:
