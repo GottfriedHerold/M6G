@@ -1,8 +1,9 @@
 from __future__ import annotations
-from django.conf import settings
-from typing import TYPE_CHECKING, Literal
-
+from typing import Literal
 from logging import Logger
+
+from django.conf import settings
+
 
 _Levels = Literal['debug', 'info', 'error', 'critical', 'warning', 'exception', None]
 
@@ -11,7 +12,6 @@ def conditional_log(logger: Logger, *args, normal_level: _Levels = 'critical', t
     if settings.TESTING_MODE:
         if test_level:
             getattr(logger, test_level)(*args, **kwargs)
-    else:
+    else:  # pragma: no cover
         if normal_level:
             getattr(logger, normal_level)(*args, **kwargs)
-
