@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Optional, List, Deque, Literal, Tuple, Union
 from collections import deque
 from CharGenNG.conditional_log import conditional_log
+from copy import deepcopy
 
 from django.db import transaction
 
@@ -53,7 +54,7 @@ class CVConfig:
     # For this, CVConfig maintains a dict known_types str -> Callable that is called to (re-)create the manager.
     # To fill this dict, callables need to register with CVConfig. This is done automatically upon import when
     # subclassing from BaseCVManager via a __init_subclass__ hook.
-    known_types: ClassVar[Dict[str, Callable[..., 'BaseCVManager']]] = {}  # stores known type-identifiers and their callable.
+    known_types: ClassVar[Dict[str, Callable[..., BaseCVManager]]] = {}  # stores known type-identifiers and their callable.
 
     _python_recipe: PythonConfigRecipe
     _json_recipe: Optional[str]
@@ -192,6 +193,7 @@ class CVConfig:
             self._python_recipe = PythonConfigRecipe.from_nested_dict(**_py_recipe_dict)
             self._edit_mode = self._python_recipe.edit_mode
         else:
+            assert from_python is not None
             self._python_recipe = from_python
             self._edit_mode = from_python.edit_mode
             self._json_recipe = None  # Created on demand
@@ -262,7 +264,7 @@ class CVConfig:
         After that, we call post_process on every managers (this is so that post_process can inspect *other* managers
         or data set by them), then the post_process_setup queue.
         """
-        if self._managers is not None:
+        if self.setup_has_run:
             raise ValueError("Trying to set up managers multiple times")
         self._managers = []
         for manager_instruction in self.python_recipe.manager_instructions:
@@ -347,6 +349,10 @@ class CVConfig:
         return self._edit_mode
 
     def _create_manager_from_instruction(self, manager_instruction: ManagerInstruction, /) -> BaseCVManager:
+        """
+        Creates a manager using the given instruction.
+        Note that the created manager keeps a reference to the passed manager_instruction.
+        """
         type_id = manager_instruction.type_id
         if type_id not in type(self).known_types:
             import_module(manager_instruction.module)
@@ -382,9 +388,9 @@ class CVConfig:
         for manager in self._managers:
             self._data_source_descriptions += manager.data_source_descriptions
 
-    def make_data_sources(self, /) -> List[CharDataSourceBase]:
+    def _make_data_sources(self, /) -> None:
         """
-        Creates the lists of data_sources. Requires that setup_managers has been run.
+        Creates the lists of data_sources and stores them in self._data_sources. Requires that setup_managers has been run.
         Data sources are created by querying managers. The order in which managers are queried is determined by
         data_source_order, which is a list of indexes in data_source_descriptions (We maintain the invariant that it
         is a permutation of data_source_descriptions, although this is not really needed here).
@@ -395,7 +401,6 @@ class CVConfig:
             self.data_source_descriptions[data_source_description_index].make_and_append_to(target_list=self._data_sources)
         while self.post_process_make_data_sources:
             self._data_sources = self.post_process_make_data_sources.popleft()(self._data_sources)
-        return self._data_sources
 
     @property
     def data_sources(self, /) -> List[CharDataSourceBase]:
@@ -406,9 +411,8 @@ class CVConfig:
         and we use self._data_source_order to correctly order them.
         """
         if self._data_sources is None:
-            return self.make_data_sources()
-        else:
-            return self._data_sources
+            self._make_data_sources()
+        return self._data_sources
 
     def validate_setup(self, /) -> None:
         """
@@ -417,7 +421,7 @@ class CVConfig:
         Indicates Errors by raising ValueError
         """
         try:
-            for manager in self.managers:
+            for manager in self.managers:  # Raises an exception if setup_managers() has run yet.
                 manager.validate_config()
             while self.post_process_validate:
                 self.post_process_validate.popleft()()
@@ -448,7 +452,7 @@ class CVConfig:
             raise warnings.warn("copy_config should be wrapped in a transaction.", RuntimeWarning)
         if new_edit_mode is None:
             new_edit_mode = self.edit_mode
-        new_py_recipe = PythonConfigRecipe(edit_mode=new_edit_mode, data_source_order=self.data_source_order, manager_instructions=[])
+        new_py_recipe = PythonConfigRecipe(edit_mode=new_edit_mode, data_source_order=deepcopy(self.data_source_order), manager_instructions=[])
         self.post_process_copy_config = deque()
         for manager in self.managers:
             manager.copy_config(new_py_recipe, transplant=transplant, target_db=target_db)

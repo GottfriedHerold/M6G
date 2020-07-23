@@ -8,6 +8,7 @@ functionality (such as data sources etc.) by itself, it is a perfectly valid CVM
 """
 from __future__ import annotations
 from typing import List, ClassVar, Optional, Iterable, TYPE_CHECKING
+import copy
 # from enum import IntEnum
 
 from .CharVersionConfig import CVConfig
@@ -74,7 +75,7 @@ class BaseCVManager:
         May be overwritten in a subclass, but you need to ensure self.manager_instruction and self.cv_config are set.
         :param cv_config: calling cv_config
         :param manager_instruction: refers to the entry in the calling cv_config's python_recipe.managers that was responsible for creating this.
-        :param args: arbitrary arguments from the recipe.
+        :param args: arbitrary arguments from the recipe. Prefer kwargs, as args might become deprecated.
         :param kwargs: arbitrary kw-arguments from the recipe.
         """
         self.args = args
@@ -120,12 +121,15 @@ class BaseCVManager:
         transplant indicates whether we copy to a new CharModel
         target_db is the db entry of the new_char.
 
+        Make sure to insert a (possibly modified) deep copy of the instruction. While a shallow copy might
+        work as long as we never mutate any existing ManagerInstruction, deep copying is safer.
+
         self.cv_config.post_process_copy_config is a deque of callables(new_py_recipe) that is called after all
         copy_configs are run.
 
         Both copy_config and the the deque's callables modify its target_recipe argument.
         """
-        target_recipe.manager_instructions.append(self.manager_instruction.make_copy())
+        target_recipe.manager_instructions.append(copy.deepcopy(self.manager_instruction))
 
     def delete_manager(self):
         """Called before the manager is deleted from a config."""

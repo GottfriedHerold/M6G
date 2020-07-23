@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING, List
 import logging
+import copy
 
 from django.db import models, transaction, IntegrityError
 
@@ -224,15 +225,19 @@ class CharVersionModel(models.Model):
 
         The new version's edit_mode is determined by json_config / python_config. The edit_mode parameter may only be
         used in conjunction with python_config and will override it.
+
+        Note that create_root_char_version makes a (deep) copy of the received python_config.
         """
 
+        #  To avoid surprises: CVConfig assumes sole ownership of passed python_config and we actaully modify python_config.
+        #  Shallow copy should be OK in this particular case, but we are conservative.
+        python_config = copy.deepcopy(python_config)
         char_logger.info("Creating new root char version for CharModel {0!s} (pk {1}).".format(owner, owner.pk))
         if (json_config is None) == (python_config is None):
             raise ValueError("Exactly one of json_config or python_config must be provided")
         if edit_mode is not None:
             if python_config is None:
                 raise ValueError("explicitly setting edit_mode only available with python_config")
-            python_config = python_config.make_copy()  # shallow(!) copy is actually OK due to changing only one level deep.
             python_config.edit_mode = edit_mode
         version_name = version_name or ""
         description = description or ""
