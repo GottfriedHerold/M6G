@@ -4,17 +4,17 @@ Setup / Maintenance considerations for CVConfig and managers (with class Manager
 
 Normal way:
 Manager.__init__ should do minimal setup and make minimal assumptions on validity of passed arguments.
-Manager.__init__ is passed both the calling cv_config and a reference to the very set of instructions used to create this manager.
+Manager.__init__ is passed (among other things) both the calling cv_config and a reference to the very set of instructions used to create this manager.
  
 Manager.post_setup is then called. With create == NO_CREATE, may assume validity of cv_config, which can be used to
 check for the presence of other managers (whose post_setup() may not yet have run).
 cv_config's post_process_setup queue can be used to delay running code after all post_setup()'s have run.
 
 
-(Direct) creation of configs:
+(Initial) creation of configs:
 Will call Manager.__init__ with cv_config, then Manager.post_setup(with create == create_config)
 cv_config's data is assumed completely correct; in particular, the instructions to create manager are included in its
-config and data_source_order is setup correctly.
+config and data_source_order is setup correctly, including any uuids.
 post_setup(create_config) must make sure that database-related setup is run once, if needed.
 It may in principle modify/update the cv_configs's python_recipe.
 after post_setup(create_config), the manager is not used anymore: We re-create the whole config the normal way.
@@ -22,20 +22,22 @@ after post_setup(create_config), the manager is not used anymore: We re-create t
 
 (Derived) creation of configs from other configs:
 We construct and setup the source config and its managers.
-The managers on the source are called to construct the target instructions (typically just copy).
-Note that the ordering of data source descriptions (and other stuff) is copied identically;
-if the set of data sources should change, mark a data source as inactive / make it do nothing rather than
-adding / removing, because things get messy otherwise.
+Then we copy the full config (except possibly changing edit_mode) and run __init__ and post_setup on the target.
+post_setup is called with (create == copy_config) and additional parameters to indicate transplant mode and a reference to the source config.
+post_setup will need to make adjustment to its own config.
+
 We then create the target the normal way using these instruction. The source should NOT be changed.
 
 
 Adding Managers:
 We are given a cv_config whose managers are setup normally.
 CVConfig.add_manager(instruction) adds the new instructions and then calls Manager.__init__, followed by Manager.post_setup(add_manager)
-Manager.post_setup(create=add_manager) needs to ensure that data_source_descriptions can be read. Other than that,
-it basically just needs to take care of the database, as we re-create the manager afterwards anyway.
-Note that the cv_config is not in a valid state during post_setup(create=add_manager), as the ordering has not been done.
-After that, we restore the ordering and call post_process_setup.
+Manager.post_setup(create=add_manager) needs to ensure that data_source_descriptions can be read.
+In particular, it probably has to update its own uuid_refs to register keys.
+
+Note that the cv_config is technically not in a valid state during post_setup(create=add_manager), as the manager and
+its instructions are already added, but the ordering has not yet been done.
+After that, we fix the ordering (by the caller!) and call post_process_setup.
 Then we recreate the config from scratch
 
 Deleting Managers:
@@ -49,6 +51,6 @@ We do *NOT* call manager.delete_manager(), as this is usually not needed: the da
 
 Change Manager's parameters:
 We are given an (old) cv_config whose managers are setup normally.
-The manager is informed by a call to Manager.change_instruction(). Then we change the config and recreate all managers.
-The calling cv_config assumes that ordering information does not need to be changed and just replaces the instructions.
-If that is not the case, Manager.change_instruction() needs to perform additional changes.
+We call manager.change_instruction(new_instruction, target_py_recipe).
+In this case, it is fully the managers job do everything, including overwriting the instructions.
+(This is because the new_instructions likely have to be adjusted for uuids anyways) 

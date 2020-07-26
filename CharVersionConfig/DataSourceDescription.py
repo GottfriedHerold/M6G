@@ -4,6 +4,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .BaseCVManager import BaseCVManager
+    from .types import UUID
 
 
 class DataSourceDescription:
@@ -17,6 +18,11 @@ class DataSourceDescription:
     toggleable: bool = False  # Can a user toggle the data source from active / inactive
     active: bool = True  # Is the data source displayed as active? Note that this is purely for display purposes.
     description: str = ""  # Description that is displayed to the user
+    # Note that DataSourceDescriptions are NOT (directly) serialized or contained in a configuration description.
+    # They are just an interface for existing managers. Unfortunately, managers only expose the set of
+    # valid data source description UUIDs after being set up, so we cannot read those off the python/JSON config.
+    # TODO: We might want to change this, if it becomes too inconvenient.
+    uuid: UUID
 
     # Position block of the data source. Data sources can only be moved within the blocks.
     class PositionType(IntEnum):
@@ -28,10 +34,15 @@ class DataSourceDescription:
     # When adding a data source with priority != None, it will get its initial position within its block according to
     # priority, otherwise at the end.
     priority: Optional[int] = None
+    # We refer to the manager by object identity rather than uuid for now.
+    # Note that the description does not know the config it belongs to, so cannot evaluate uuids.
+    # We might change that and make manager a property.
+    # Note that DataSourceDescriptions are NOT (directly) serialized.
     manager: BaseCVManager
 
-    def __init__(self, manager, *, description: str = None, active: bool = None, toggleable: bool = None, movable: bool = None, position_type: PositionType = None, priority: Optional[int] = Ellipsis):
+    def __init__(self, manager, *, description: str = None, active: bool = None, toggleable: bool = None, movable: bool = None, position_type: PositionType = None, priority: Optional[int] = Ellipsis, uuid: UUID):
         self.manager = manager
+        self.uuid = uuid
         if description is not None:
             self.description = description
         if active is not None:

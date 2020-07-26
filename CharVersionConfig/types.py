@@ -48,7 +48,7 @@
 from __future__ import annotations
 import dataclasses
 # NOTE: dataclasses-json is not deemed mature enough, so we do everything manually
-from typing import TypedDict, Final, List, Optional, Dict, Union, Any, TYPE_CHECKING, Callable
+from typing import TypedDict, Final, List, Dict, Union, Any
 from enum import Enum, IntEnum
 import re
 
@@ -76,9 +76,9 @@ class ManagerInstructionGroups(Enum):
 # - We may need to globally rename a uuid to a different value. This violates the first u in uuid, but may be
 #   needed.
 # - JSON serialization throws away type information. We need to be able to recognize uuids as such in JSON serialized
-#   formats to achieve the above.
+#   formats to achieve the above. This is done by knowing when to expect a uuid.
 # - UUIDs will appear in Javascript strings and GET/POST request strings, possibly as substrings of something.
-#   Due to this (note 1 vs "1" in JS), we need to make __str__ injective, output only good characters and ideally have
+#   Due to this (note 1 vs "1" in JS), we need to make __str__ injective, output only safe characters and possibly have
 #   UUID.__str__ self-delineate.
 
 UUID_Source = Union[int, str]
@@ -87,7 +87,7 @@ UUID_Source = Union[int, str]
 class UUID:
     __slots__ = ['value']
     value: UUID_Source
-    re_valid_str: Final = re.compile(r"[a-zA-Z]+")  # Valid string uuids
+    re_valid_str: Final = re.compile(r"[a-zA-Z]+")  # Valid string uuids. We are rather restrictive here.
 
     def __init__(self, value: Union[int, str, UUID], /):
         if type(value) is UUID:
@@ -153,6 +153,7 @@ def UUID_to_JSONable_recursive(target, /):
     elif type(target) is dict:
         return {k: UUID_to_JSONable_recursive(v) for (k, v) in target.items()}
     else:
+        #  We basically assert that target is int, str, bool or None. We do not check here, though.
         return target
 
 
@@ -307,11 +308,11 @@ def validate_strict_JSON_serializability(arg, /) -> None:
     elif type(arg) is dict:
         for key, value in arg.items():
             if type(key) is not str:
-                raise ValueError("Invalid CVConfig: non-string dict key")
+                raise ValueError("Invalid Config: non-string dict key")
             validate_strict_JSON_serializability(value)
         return
     else:
-        raise ValueError("Invalid CVConfig: Contains non-allowed python type")
+        raise ValueError("Invalid Config: Contains non-allowed python type")
 
 
 EMPTY_RECIPE_DICT: Final[PythonConfigRecipe_Dict] = {
@@ -328,6 +329,7 @@ class CreateManagerEnum(IntEnum):
     create_config = 1
     destroy_config = 2
     add_manager = 3
+    copy_config = 4
 
 
 # Default argument for create.
