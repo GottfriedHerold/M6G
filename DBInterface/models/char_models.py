@@ -217,7 +217,7 @@ class CharVersionModel(models.Model):
             return self.name + " V" + str(self.char_version_number)
 
     @classmethod
-    def create_root_char_version(cls, *, version_name: str = None, description: str = None,
+    def create_root_char_version(cls, *, version_name: str = "", description: str = "",
                                  json_config: str = None, python_config: PythonConfigRecipe = None, owner: CharModel,
                                  edit_mode: EditModes = None) -> CharVersionModel:
         """
@@ -230,8 +230,8 @@ class CharVersionModel(models.Model):
         """
 
         #  To avoid surprises: CVConfig assumes sole ownership of passed python_config and we actaully modify python_config.
-        #  Shallow copy should be OK in this particular case, but we are conservative.
-        python_config = copy.deepcopy(python_config)
+        #  Shallow copy should be OK in this particular case, as CVConfig.__init__ makes a deepcopy anyway.
+        python_config = copy.copy(python_config)
         char_logger.info("Creating new root char version for CharModel {0!s} (pk {1}).".format(owner, owner.pk))
         if (json_config is None) == (python_config is None):
             raise ValueError("Exactly one of json_config or python_config must be provided")
@@ -239,10 +239,8 @@ class CharVersionModel(models.Model):
             if python_config is None:
                 raise ValueError("explicitly setting edit_mode only available with python_config")
             python_config.edit_mode = edit_mode
-        version_name = version_name or ""
-        description = description or ""
 
-        # This just serves for the json<->python conversion, really.
+        # This just serves for the json<->python conversion, really. We can avoid doing that during a transaction.
         new_config: CVConfig = CVConfig(from_json=json_config, from_python=python_config, validate_syntax=True, setup_managers=False)
         json_config = new_config.json_recipe
 
@@ -266,7 +264,8 @@ class CharVersionModel(models.Model):
                 # (This may trigger hooks in the associated managers)
 
                 new_config = CVConfig.create_char_version_config(from_python=new_config.python_recipe, db_char_version=new_char_version, setup_managers=True, db_write_back=False)
-                # In theory, CVConfig.create_char_version_config might change the config:
+                # CVConfig.create_char_version_config might change the config:
+                # TODO: allow db_write_back=True above instead.
                 if json_config != new_config.json_recipe:
                     new_char_version.json_config = new_config.json_recipe
                     new_char_version.save()
@@ -299,13 +298,13 @@ class CharVersionModel(models.Model):
                 owner.refresh_from_db()
             else:
                 owner = parent.owner
-            # Note: Do not make assumptions on bool(edit_mode)
+            # Note: Avoid assumptions on the meaning of bool(edit_mode)
             new_edit_mode: EditModes = edit_mode if (edit_mode is not None) else parent.edit_mode
             overwrite = new_edit_mode.is_overwriter()
             new_version: CharVersionModel = cls.objects.get(pk=parent.pk)
             new_version.pk = None
             if transplant:
-                # This would raise an integrity error later anyway...
+                # This should raise some error later anyway...
                 if overwrite:
                     raise ValueError("Cannot set char for overwrite in transplant mode")
                 new_version.parent = None

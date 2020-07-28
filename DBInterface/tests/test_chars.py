@@ -6,6 +6,7 @@ from CharVersionConfig import EMPTY_RECIPE
 
 from .test_setup import setup_chars_and_versions
 
+
 class TestChars(django.test.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -31,6 +32,7 @@ class TestChars(django.test.TestCase):
                 cv1.parent = cv4
                 cv1.save()
                 char1.validate_treeness()
+
 
 class TestCharVersions(django.test.TestCase):
     @classmethod

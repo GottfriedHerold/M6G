@@ -51,6 +51,7 @@ import dataclasses
 from typing import TypedDict, Final, List, Dict, Union, Any
 from enum import Enum, IntEnum
 import re
+import logging
 
 from .EditModes import EditModes
 
@@ -261,12 +262,13 @@ class PythonConfigRecipe:
     def from_dict(cls, d: PythonConfigRecipe_Dict, /) -> PythonConfigRecipe:
         #  Construct partial return object without manager_instruction first.
         #  We use it in case we need to assign fresh uuids.
-        ret: PythonConfigRecipe = cls(edit_mode=EditModes(d['edit_mode']), data_source_order=to_UUID_recursive(d['edit_mode']),
+        ret: PythonConfigRecipe = cls(edit_mode=EditModes(d['edit_mode']), data_source_order=to_UUID_recursive(d['data_source_order']),
                                       manager_instructions={}, last_uuid=d['last_uuid'])
         if type(mi := d['manager_instructions']) is dict:
             mi_new: Dict[UUID, ManagerInstruction] = {UUID(k): ManagerInstruction.from_dict(v) for (k, v) in mi.items()}
         else:
             ml: List[ManagerInstruction_Dict] = d['manager_instructions']
+            assert type(ml) is list
             mi_new: Dict[UUID, ManagerInstruction] = {(UUID(x['uuid']) if 'uuid' in x else ret.take_uuid()): ManagerInstruction.from_dict(x) for x in ml}
         for k in mi_new:
             mi_new[k].uuid = k
@@ -275,7 +277,7 @@ class PythonConfigRecipe:
 
     @classmethod
     def from_serialized_dict(cls, d: PythonConfigRecipe_SerializedDict, /) -> PythonConfigRecipe:
-        return cls(edit_mode=EditModes[d['edit_mode']], data_source_order=[UUID(x) for x in d['data_source_order']],
+        return cls(edit_mode=EditModes(d['edit_mode']), data_source_order=[UUID(x) for x in d['data_source_order']],
                    manager_instructions={UUID(k): ManagerInstruction.from_serialized_dict(v) for (k, v) in d['manager_instructions'].items()},
                    last_uuid=d['last_uuid'])
 

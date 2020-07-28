@@ -6,7 +6,7 @@ from BackendInterface.DBCharVersion import DBCharVersion
 
 import django.test
 
-from CharVersionConfig import BaseCVManager, EMPTY_RECIPE_DICT, PythonConfigRecipeDict, ManagerInstructionDict, ManagerInstructionDictBase, ManagerInstructionGroups, PythonConfigRecipe, EditModes, ManagerInstruction
+from CharVersionConfig import BaseCVManager, EMPTY_RECIPE_DICT, PythonConfigRecipe_Dict, ManagerInstructionDict, ManagerInstructionDictBase, ManagerInstructionGroups, PythonConfigRecipe, EditModes, ManagerInstruction
 from DBInterface.tests import setup_chars_and_versions, _setup_chars_and_versions_return_class
 from DBInterface.models import CharVersionModel
 

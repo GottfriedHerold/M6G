@@ -3,7 +3,7 @@ import json
 import logging
 import warnings
 from importlib import import_module
-from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Optional, List, Deque, Literal, Tuple, Union, ValuesView, Final
+from typing import ClassVar, Dict, Callable, TYPE_CHECKING, Optional, List, Deque, Literal, ValuesView, Final
 from collections import deque
 from CharGenNG.conditional_log import conditional_log
 import copy
@@ -450,6 +450,10 @@ class CVConfig:
         for manager in self.managers:
             self._data_source_descriptions.update(manager.data_source_descriptions)
 
+    def _ensure_data_source_descriptions(self, /):
+        if self._data_source_descriptions is None:
+            self._setup_data_source_descriptions()
+
     def _make_data_sources(self, /) -> None:
         """
         Creates the lists of data_sources and stores them in self._data_sources.
@@ -464,8 +468,7 @@ class CVConfig:
         (quite possibly 0) of data sources.
         """
         assert self._data_sources is None
-        if self._data_source_descriptions is None:
-            self._setup_data_source_descriptions()
+        self._ensure_data_source_descriptions()
         self._data_sources: list = list()
         for data_source_description_index in self.data_source_order:
             # Note: We use .make_and_append_to because we do not want to specify whether a given data source desc refers
@@ -495,8 +498,7 @@ class CVConfig:
         try:  # catch and re-raise for logging.
             for manager in self.managers:  # Raises an exception if setup_managers() has run yet.
                 manager.validate_config()
-            if self._data_source_descriptions is None:
-                self._setup_data_source_descriptions()
+            self._ensure_data_source_descriptions()
             manager_uuid_set = set(self._managers.keys())
             dsd_uuid_set = set(self._data_source_descriptions.keys())
             if not manager_uuid_set.isdisjoint(dsd_uuid_set):
@@ -536,8 +538,7 @@ class CVConfig:
         """
         if not self.setup_has_run:
             raise ValueError("Source of copying must be setup")
-        if not self._data_source_descriptions:
-            self._setup_data_source_descriptions()  # the copy target may actually read this during its setup.
+        self._ensure_data_source_descriptions()
         assert not db_write_back
         if (target_db is not None) and transaction.get_autocommit():
             raise warnings.warn("copy_config should be wrapped in a transaction.", RuntimeWarning)
@@ -581,8 +582,7 @@ class CVConfig:
 
         # self.data_source_descriptions is computed on demand and a ValueView.
         # We need to access the raw value and ensure it was set up.
-        if self._data_source_descriptions is None:
-            self._setup_data_source_descriptions()
+        self._ensure_data_source_descriptions()
         descriptions: Dict[UUID, DataSourceDescription] = self._data_source_descriptions
         data_source_order: List[UUID] = self.data_source_order
         manager_instruction = copy.deepcopy(manager_instruction)
@@ -639,8 +639,7 @@ class CVConfig:
         Removes the selected manager (given as either an index or the manager itself within (by identity) self.managers)
         """
         manager = self.manager_by_uuid(manager_uuid)
-        if self._data_source_descriptions is None:
-            self._setup_data_source_descriptions()
+        self._ensure_data_source_descriptions()
 
         # Call hook on manager. This is intentionally done before we remove anything from the config.
         manager.delete_manager()

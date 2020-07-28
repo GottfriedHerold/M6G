@@ -7,17 +7,16 @@ BaseCVManager itself just defines the interface with some meaningful defaults. W
 functionality (such as data sources etc.) by itself, it is a perfectly valid CVManager.
 """
 from __future__ import annotations
-from typing import List, ClassVar, Optional, Iterable, TYPE_CHECKING, Dict, Any
-import copy
+from typing import List, ClassVar, Iterable, TYPE_CHECKING, Dict, Any
 # from enum import IntEnum
 
 from .CharVersionConfig import CVConfig
 from .types import ManagerInstructionGroups
 
 if TYPE_CHECKING:
-    from .types import ManagerInstruction, ManagerInstruction_Dict, ManagerInstruction_BaseDict, PythonConfigRecipe, CreateManagerEnum, UUID, ManagerInstruction_SerializedDict
+    from .types import ManagerInstruction, ManagerInstruction_BaseDict, PythonConfigRecipe, CreateManagerEnum, UUID, ManagerInstruction_SerializedDict
     from .DataSourceDescription import DataSourceDescription
-    from DBInterface.models import CharVersionModel
+    # from DBInterface.models import CharVersionModel
     from DataSources import CharDataSourceBase
 
 
@@ -40,6 +39,7 @@ class BaseCVManager:
 
     # manager_instruction is the ManagerInstruction that was used to create the instance. Note that instruction refers
     # to the instruction contained in cv_config.python_recipe by identity.
+    # It should be identical to self.cv_config.manager_by_uuid(self.uuid)
     manager_instruction: ManagerInstruction  # TODO: Weak-ref
 
     # managing CVConfig instance. This can be used to check the presence of other CVManagers.
@@ -108,7 +108,7 @@ class BaseCVManager:
     def recipe_base_dict(cls, /) -> ManagerInstruction_BaseDict:
         """
         This should be used in python recipes as {**CVManager.recipe_base(), ...} to set up type and module correctly.
-        No need to overwrite.
+        Normally, there should be no need to overwrite this.
         """
         ret: ManagerInstruction_BaseDict = {'type_id': cls.type_id, 'module': cls.module, 'group': ManagerInstructionGroups('default')}
         return ret
@@ -119,28 +119,8 @@ class BaseCVManager:
         """
         return self.manager_instruction.as_dict()
 
-    # TODO!!!
-    # noinspection PyUnusedLocal
-    def copy_config(self, target_recipe: PythonConfigRecipe, /, *, transplant: bool, target_db: Optional[CharVersionModel]) -> None:
-        """
-        Called for each manager on the source CharVersion when the containing CharVersion is copied.
-        target_recipe is the python recipe for the new char with (new!) edit_mode and data_source_order already set.
-        Its target_recipe.managers is initally empty.
-        CVManager.copy_config is responsible for creating the corresponding entry in the target_recipe.
-        transplant indicates whether we copy to a new CharModel
-        target_db is the db entry of the new_char.
-
-        Make sure to insert a (possibly modified) deep copy of the instruction. While a shallow copy might
-        work as long as we never mutate any existing ManagerInstruction, deep copying is safer.
-
-        self.cv_config.post_process_copy_config is a deque of callables(new_py_recipe) that is called after all
-        copy_configs are run.
-
-        Both copy_config and the the deque's callables modify its target_recipe argument.
-        """
-        target_recipe.manager_instructions.append(copy.deepcopy(self.manager_instruction))
-
-    def delete_manager(self):
+    # TODO: Move to post-setup?
+    def delete_manager(self) -> None:
         """Called before the manager is deleted from a config."""
         pass
 
@@ -148,14 +128,13 @@ class BaseCVManager:
         """
         Called when the instructions of the manager change to new_instructions.
         May in some cases need to modify python_recipe (which is the owning config's recipe).
-        CHANGED!
-        Note that the actual modification of instructions is done by the caller afterwards.
+
+        Note that the actual modification of instructions is the responsibility of this method.
 
         See Notes.txt for precise usage requirements.
         """
         assert self.uuid == new_instruction.uuid
         python_recipe.manager_instructions[self.uuid] = new_instruction
-
 
     def _get_data_sources(self, /, description: DataSourceDescription) -> Iterable[CharDataSourceBase]:
         return []
@@ -164,6 +143,10 @@ class BaseCVManager:
         target_list.extend(self._get_data_sources(description))
 
     def validate_config(self, /):
+        # Note that these could both be violated if the registered callable is not the class itself. In this case,
+        # validate_config has to be overwritten without calling super()
+        # Validation steps that are independent of the manager class should proably go to CVConfig.validate_setup anyway
+        # (this is the sole caller of BaseCVManager.validate_config)
         if self.manager_instruction.module != type(self).module:
             raise ValueError("CVConfig validation failed: Registered module differs from saved module. Did you forget to create a db migration after a file rename during code reorganization?")
         if self.manager_instruction.type_id != type(self).type_id:

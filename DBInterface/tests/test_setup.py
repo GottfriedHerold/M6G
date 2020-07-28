@@ -4,13 +4,17 @@ setUp functions from TestCase (django.test.TestCase, not unittest.TestCase)
 """
 
 from __future__ import annotations
+
+from typing import TypedDict
+
 from django.db import transaction
 import django.test
+
 from DBInterface.models import CGUser, CGGroup, CharModel, CharVersionModel, CVReferencesModel
 from DBInterface.models import get_default_group
 from CharVersionConfig import EMPTY_RECIPE
 from CharVersionConfig import EditModes
-from typing import TypedDict
+
 
 class _setup_users_and_groups_return_class(TypedDict):
     """
@@ -53,6 +57,7 @@ def setup_users_and_groups() -> _setup_users_and_groups_return_class:
     ret['group1'] = CGGroup.create_group('group1', initial_users=[user1])
     return ret
 
+
 class _setup_chars_and_versions_return_class(_setup_users_and_groups_return_class):
     admin_char1: CharModel
     char1: CharModel
@@ -68,6 +73,7 @@ class _setup_chars_and_versions_return_class(_setup_users_and_groups_return_clas
     cv1_4: CharVersionModel
     cv2_1: CharVersionModel
     cv2_2: CharVersionModel
+
 
 def setup_chars_and_versions() -> _setup_chars_and_versions_return_class:
     """
@@ -101,6 +107,7 @@ def setup_chars_and_versions() -> _setup_chars_and_versions_return_class:
     ret['cv2_1'] = cv2_1 = CharVersionModel.create_root_char_version(python_config=EMPTY_RECIPE, owner=char2)
     ret['cv2_2'] = cv2_2 = CharVersionModel.derive_char_version(parent=cv1_1, owner=char2, edit_mode=EditModes.EDIT_DATA_NEW)
     return ret
+
 
 class TestUsersAndGroupSetup(django.test.TestCase):
 
