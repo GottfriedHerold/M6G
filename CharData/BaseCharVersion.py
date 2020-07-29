@@ -200,16 +200,16 @@ class BaseCharVersion:
         self._updated_config()
 
     def __enter__(self):
-        raise NotImplemented
+        raise NotImplementedError
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        raise NotImplemented
+        raise NotImplementedError
 
     def _save(self):
         """
         Saves back to db. Implemented in derived classes.
         """
-        raise NotImplemented
+        raise NotImplementedError
 
     def _update_last_changed(self) -> None:
         """
