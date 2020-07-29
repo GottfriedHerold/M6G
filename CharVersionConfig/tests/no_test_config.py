@@ -3,6 +3,7 @@ from copy import deepcopy
 from DBInterface.models import CGUser, CharModel, CharVersionModel
 from BackendInterface.DBCharVersion import DBCharVersion
 
+
 class CVManagerTest(TestCase):
 
     type_string = 'base'

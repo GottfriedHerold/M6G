@@ -211,7 +211,7 @@ class ManagerInstruction:
     args: list = dataclasses.field(default_factory=list)
     kwargs: dict = dataclasses.field(default_factory=dict)
     uuid: UUID = None
-    uuid_refs: Any = None
+    uuid_refs: Any = None  # TODO: Default to default_factory=dict?
 
     @classmethod
     def from_dict(cls, d: ManagerInstruction_Dict, /) -> ManagerInstruction:
@@ -288,7 +288,7 @@ class PythonConfigRecipe:
     def as_dict(self, /) -> PythonConfigRecipe_SerializedDict:
         return {'edit_mode': self.edit_mode.value,
                 'data_source_order': [x.value for x in self.data_source_order],
-                'manager_instructions': {k.value: v.as_dict for (k, v) in self.manager_instructions},
+                'manager_instructions': {k.value: v.as_dict() for (k, v) in self.manager_instructions.items()},
                 'last_uuid': self.last_uuid}
 
     #  Removed in favor of copy.deepcopy being applied at the call site.
@@ -320,7 +320,7 @@ def validate_strict_JSON_serializability(arg, /) -> None:
 EMPTY_RECIPE_DICT: Final[PythonConfigRecipe_Dict] = {
     'edit_mode': EditModes.NORMAL,
     'data_source_order': [],
-    'manager_instructions': [],
+    'manager_instructions': {},
     'last_uuid': 1,
 }
 EMPTY_RECIPE: Final[PythonConfigRecipe] = PythonConfigRecipe.from_dict(EMPTY_RECIPE_DICT)

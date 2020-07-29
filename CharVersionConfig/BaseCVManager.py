@@ -11,10 +11,10 @@ from typing import List, ClassVar, Iterable, TYPE_CHECKING, Dict, Any
 # from enum import IntEnum
 
 from .CharVersionConfig import CVConfig
-from .types import ManagerInstructionGroups
+from .types import ManagerInstructionGroups, CreateManagerEnum
 
 if TYPE_CHECKING:
-    from .types import ManagerInstruction, ManagerInstruction_BaseDict, PythonConfigRecipe, CreateManagerEnum, UUID, ManagerInstruction_SerializedDict
+    from .types import ManagerInstruction, ManagerInstruction_BaseDict, PythonConfigRecipe, UUID, ManagerInstruction_SerializedDict
     from .DataSourceDescription import DataSourceDescription
     # from DBInterface.models import CharVersionModel
     from DataSources import CharDataSourceBase

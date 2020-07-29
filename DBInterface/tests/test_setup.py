@@ -33,6 +33,7 @@ class _setup_users_and_groups_return_class(TypedDict):
     empty_group: CGGroup
     group1: CGGroup
 
+
 def setup_users_and_groups() -> _setup_users_and_groups_return_class:
     """
     Creates a bunch of test users and groups in the database.

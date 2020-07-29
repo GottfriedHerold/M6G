@@ -38,7 +38,7 @@ class CVConfig:
     char-metadata related purposes. Modifying / adding / deleting CVManagers needs to go through the CVConfig interface.
 
     Furthermore, it holds some other metadata apart from managers: notably:
-    Ordering of data sources (The managers define a *list* of data sources, but this is then re-ordered)
+    Ordering of data sources (The managers define a *dict* of data sources, but this is then re-ordered)
     TODO: Ordering of LaTeX output (dito)
     Edit mode
 
@@ -613,7 +613,7 @@ class CVConfig:
 
         # Cleanup
         assert data_source_order is self.data_source_order
-        assert descriptions is self.data_source_descriptions
+        assert descriptions is self._data_source_descriptions
         while self.post_process_setup:
             self.post_process_setup.popleft()()
         # TODO: Notify other managers?
