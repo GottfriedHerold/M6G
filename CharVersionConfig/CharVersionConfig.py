@@ -93,7 +93,7 @@ class CVConfig:
         db_char_version (inferred or not) is stored as a reference, not as a copy. It is assumed that during the lifetime
         of a CharVersionConfig object, this referred db_char_version is always in sync with the database. Changing
         db_char_version at the call site (unless going through the CVConfig interface)
-        will typically requring creating a new CVConfig, as the config needs reloading.
+        will typically requiring creating a new CVConfig, as the config needs reloading.
 
         For testing purposes, CVConfig does not require an associated char_version / db_char_version, but some
         functionalities and certain types of managers will not work.
@@ -566,7 +566,7 @@ class CVConfig:
 
     def add_manager(self, manager_instruction: ManagerInstruction, /, db_write_back: bool = False) -> None:
         """
-        Adds a new manager defined by manager_instructions (in dataclass format, automatically deepcopied) to the current configuration.
+        Adds a new manager defined by manager_instructions (in dataclass format, automatically deep-copied) to the current configuration.
 
         It is the caller's responsibility to ensure that manager_instructions are in the correct format, except
         that UUID is set automatically.
