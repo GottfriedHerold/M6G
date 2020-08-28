@@ -206,7 +206,7 @@ class CVConfig:
         :return: None
         """
         if (from_python is not None) and (from_json is not None):
-            raise ValueError("Do not provide both from_python= and from_json= be given and not be None.")
+            raise ValueError("Do not provide both from_python and from_json with non-None value.")
         self._associate_initial_char_version(char_version=char_version, db_char_version=db_char_version)
         if (from_python is None) and (from_json is None):
             if not self.has_db_char_version:
@@ -323,7 +323,8 @@ class CVConfig:
         or data set by them), then the post_process_setup queue.
 
         the create parameter is used to inform the managers about conditions like set up for the first time for this config.
-        The default corresponds to setting up a manager of a config that was serialized before as it is.
+        The default is CreateManagerEnum.no_create, which corresponds to setting up a manager of a config that was serialized before as it is.
+        We explicitly provide create in each case, however.
         """
         if self.setup_has_run:
             raise ValueError("Trying to set up managers multiple times")
@@ -413,9 +414,11 @@ class CVConfig:
     def write_back_to_db(self, /) -> None:
         if transaction.get_autocommit():
             raise RuntimeError("writing to db only allowed inside a transaction.")
+
         # This should really do nothing.
         self.db_char_version.refresh_from_db()
-        self._json_recipe = None
+
+        self._json_recipe = None  # This forces recomputation upon accessing self.json_recipe
         self.db_char_version.json_config = self.json_recipe
         self.db_char_version.save()
 
@@ -435,6 +438,7 @@ class CVConfig:
         return type(self).known_types[type_id](*manager_instruction.args, **manager_instruction.kwargs, uuid=manager_instruction.uuid, uuid_refs=manager_instruction.uuid_refs, cv_config=self, manager_instruction=manager_instruction)
 
     # internal-use keyword arguments used in _create_manager_from_instructions. Note that group is only used for display.
+    # If these are present as keys in manager_instruction.kwargs, we have a problem, so validation will check for this.
     _INTERNAL_MANAGER_KWARGS: Final = {'uuid', 'uuid_refs', 'cv_config', 'manager_instruction'}
 
     def _setup_data_source_descriptions(self, /):
@@ -465,7 +469,7 @@ class CVConfig:
         in turns calls its related manager. (This roundabout way is because ordering data sources has nothing
         to do with ordering managers, a single manager can be responsible for several data source descriptions
         that need individual ordering and a single data source description actually encodes an arbitrary number
-        (quite possibly 0) of data sources.
+        (quite possibly 0) of data sources.)
         """
         assert self._data_sources is None
         self._ensure_data_source_descriptions()
