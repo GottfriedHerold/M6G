@@ -86,4 +86,3 @@ class BasicManagerTest(django.test.TestCase):
         assert cv_copy.config_write_permission
 
         cv_empty.add_manager(ManagerInstruction.from_dict(self.new_instruction_dict))
-

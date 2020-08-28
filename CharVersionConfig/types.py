@@ -2,7 +2,7 @@
     This file defines the data types involved in character metadata. This mostly means Enums, TypedDicts and dataclasses
     for better static type checking.
 
-    A CVConfig instance holds a manages metadata for a CharVersion. To achieve db persistence that is easy to
+    A CVConfig instance holds and manages metadata for a CharVersion. To achieve db persistence that is easy to
     serialize / make an UI for / update between versions of CharsheetGen, we use JSON to serialize these as string.
 
     Of course, to serialize the manager objects, we rather store the arguments needed to (re-)create them, which we
@@ -16,9 +16,11 @@
     recipe = {
         ... other Metadata (TODO)
         'edit_mode': int (EditModes.FOO.value, on the dict level we do not use EnumTypes)
-        'data_source_order': list of ints (a permutation of 0,1,2, ...) that index into the list of data source descriptions,
+        'data_source_order': list of UUIDs that index into the list of data source descriptions,
                              which are in turn defined by the managers.
         'manager_instructions': list or dict of manager creation instructions (dict is keyed by uuid)
+        'last_uuid': Needs to be larger than all numeric UUID that are present in the recipe.
+                     Used to automatically assign new uuids.
     }
 
     each manager instruction in turn is a dict
@@ -28,7 +30,11 @@
         'args' : [some_JSON_able_list],   # defaults to empty list
         'kwargs' : {'some' : 'JSON_able_dict'},  # defaults to empty dict
         'group': 'name of group',  # Name of group this instruction belongs to. Used for display options only.
-        'uuid': some_int, # a unique (within the recipe, at least) identifier. If None or missing, will be set automatically.
+        'uuid': some_uuid, # a unique (within the recipe, at least) int or str identifier.
+                If None or missing, will be set automatically.
+        'uuid_refs': extra arguments that contain references to other object via their uuids.
+                     Typically, uuid_refs is a dict. This should be used rather than putting uuids into kwargs to make
+                     various methods uuid-aware. Also, this ensures automatic conversion into the UUID type.
     }
 
     type_id is a string that uniquely identifies the Manager class (or, more generally, a callable that is to be called
@@ -51,7 +57,7 @@ import dataclasses
 from typing import TypedDict, Final, List, Dict, Union, Any
 from enum import Enum, IntEnum
 import re
-import logging
+# import logging
 
 from .EditModes import EditModes
 
@@ -122,6 +128,9 @@ class UUID:
 
     @classmethod
     def from_str(cls, input_str: str, /) -> UUID:
+        """
+        Deserializes UUID from its __str__ output.
+        """
         if input_str.startswith(prefix='UUID'):
             return cls(input_str[4:])
         else:
@@ -129,6 +138,17 @@ class UUID:
 
 
 def to_UUID_recursive(target, /):
+    """
+    This function ist called a JSON-serializable object and recursively turns strs and ints into UUIDs.
+
+    Recursion traverses (nested) dicts and lists. Important: dict KEYS are not changed to UUIDs, only values are (recursively).
+    Types othter than str and int are unchanged.
+
+    Note: We allow UUID types to be present in target (even though that's not JSON-serializable).
+    Note: The result holds references to target and subobjects of target.
+
+    UUID_to_JSONable_recursive can be used to undo this.
+    """
     if target is None:
         return None
     elif type(target) is bool:
@@ -147,6 +167,13 @@ def to_UUID_recursive(target, /):
 
 
 def UUID_to_JSONable_recursive(target, /):
+    """
+    Turns a (nested) object that is JSON-able apart from containing UUIDs into a JSON-able object by
+    recursively replacing UUIDs be their underlying value (except dict keys)
+    This should be paired with to_UUID_recursive.
+
+    NOTE: This function does not check JSON-ability.
+    """
     if type(target) is UUID:
         return target.value
     elif type(target) is list:
@@ -166,9 +193,10 @@ def UUID_to_JSONable_recursive(target, /):
 # 2.) It is used to describe managers' parameters for initial setup.
 #     In this case, args, kwargs, uuid and uuid_refs may be unset.
 #     args and kwargs are set when transforming to ManagerInstruction (not the _Dict).
-#     uuid and uuid_refs are set upon initializing an actual manager with there parameters.
+#     uuid and uuid_refs are set upon initializing an actual manager with their parameters.
 #     Due to appropriate hooks in CharVersionConfig / BaseCVManager, these hooks are guaranteed to be called before
 #     ManagerInstructionBase_Dict -> JSON -> Save to database.
+
 class ManagerInstruction_BaseDict(TypedDict):
     type_id: str
     module: str
@@ -178,11 +206,13 @@ class ManagerInstruction_BaseDict(TypedDict):
 class ManagerInstruction_Dict(ManagerInstruction_BaseDict, total=False):
     args: list
     kwargs: Dict[str, Any]
+
     # an unique id that is unique among objects belonging to a single given config and should not be changed later
     # (except possibly through a designated interface that globally affects a whole config)
-    # Not present means unset: We set the id automatically when creating a config with such a manager.
+    # Not present means unset: We set the uuid automatically when creating a config with such a manager.
     # uuids must be positive numbers or match re_uuid_str.
     uuid: Union[UUID, UUID_Source]
+
     # Any referenced uuids (including uuids of data sources / LaTeX output that are produced by the constructed mananager)
     # needs to be serialized. This should go into uuid_refs rather than into args/kwargs. Any number or string literal that
     # is (recursively!) contained, except dict keys, in uuid_refs is interpreted as a uuid and transformed into the UUID class.
@@ -194,6 +224,7 @@ class ManagerInstruction_Dict(ManagerInstruction_BaseDict, total=False):
 class ManagerInstruction_SerializedDict(ManagerInstruction_BaseDict):
     args: list
     kwargs: Dict[str, Any]
+
     # an unique id that is unique among objects belonging to a single given config and is not changed later.
     # Not present means unset: We set the id automatically when creating a config with such a manager.
     uuid: UUID_Source
@@ -215,6 +246,9 @@ class ManagerInstruction:
 
     @classmethod
     def from_dict(cls, d: ManagerInstruction_Dict, /) -> ManagerInstruction:
+        """
+        Transforms a ManagerInstruction_Dict into a ManagerInstruction dataclass.
+        """
         ret: ManagerInstruction = cls(**d)
         if type(ret.group) is not ManagerInstructionGroups:
             ret.group = ManagerInstructionGroups[d['group']]
@@ -225,6 +259,10 @@ class ManagerInstruction:
 
     @classmethod
     def from_serialized_dict(cls, d: ManagerInstruction_SerializedDict, /) -> ManagerInstruction:
+        """
+        Transforms a ManagerInstruction dict into a ManagerInstruction dataclass.
+        Note that the difference to from_dict is that we have more guarantees on the input.
+        """
         return cls(type_id=d['type_id'], module=d['module'], group=ManagerInstructionGroups[d['group']], args=d['args'],
                    kwargs=d['kwargs'], uuid=UUID(d['uuid']), uuid_refs=to_UUID_recursive(d['uuid_refs']))
 
@@ -237,13 +275,14 @@ class ManagerInstruction:
 
 
 class PythonConfigRecipe_Dict(TypedDict):
-    edit_mode: Union[int, EditModes]  # key to EditModes
+    edit_mode: Union[int, EditModes]  # int is key to EditModes (which is an IntEnum type)
     data_source_order: List[Union[UUID_Source, UUID]]
     manager_instructions: Union[Dict[Union[UUID_Source, UUID], ManagerInstruction_Dict],
                                 List[ManagerInstruction_Dict]]
     last_uuid: int
 
 
+# version of the above, where we have more guarantees.
 class PythonConfigRecipe_SerializedDict(TypedDict):
     edit_mode: int
     data_source_order: List[UUID_Source]
@@ -256,14 +295,20 @@ class PythonConfigRecipe:
     edit_mode: EditModes
     data_source_order: List[UUID]
     manager_instructions: Dict[UUID, ManagerInstruction]
-    last_uuid: int
+    last_uuid: int  # stores the last (largest) numerical uuid that was given to objects related to this config.
 
     @classmethod
     def from_dict(cls, d: PythonConfigRecipe_Dict, /) -> PythonConfigRecipe:
+        """
+        Convert PythonConfigRecipe dict to PythonConfigRecipe dataclass.
+        """
         #  Construct partial return object without manager_instruction first.
         #  We use it in case we need to assign fresh uuids.
         ret: PythonConfigRecipe = cls(edit_mode=EditModes(d['edit_mode']), data_source_order=to_UUID_recursive(d['data_source_order']),
                                       manager_instructions={}, last_uuid=d['last_uuid'])
+        # ret.manager_instructions is supposed to be a dict UUID -> ManagerInstruction, where each
+        # manager instruction knows the uuid key it is stored under. This need not be the case for the input.
+        # We also allow lists as input: in this case, we need to create our own uuids.
         if type(mi := d['manager_instructions']) is dict:
             mi_new: Dict[UUID, ManagerInstruction] = {UUID(k): ManagerInstruction.from_dict(v) for (k, v) in mi.items()}
         else:
@@ -277,11 +322,18 @@ class PythonConfigRecipe:
 
     @classmethod
     def from_serialized_dict(cls, d: PythonConfigRecipe_SerializedDict, /) -> PythonConfigRecipe:
+        """
+        Convert PythonConfigRecipe dict to PythonConfigRecipe dataclass. As opposed to from_dict, we have more guarantees
+        on the input.
+        """
         return cls(edit_mode=EditModes(d['edit_mode']), data_source_order=[UUID(x) for x in d['data_source_order']],
                    manager_instructions={UUID(k): ManagerInstruction.from_serialized_dict(v) for (k, v) in d['manager_instructions'].items()},
                    last_uuid=d['last_uuid'])
 
     def take_uuid(self) -> UUID:
+        """
+        Creates a new numeric uuid for this recipe. We assume that all numeric uuids are created through this method.
+        """
         self.last_uuid += 1
         return UUID(self.last_uuid)
 
@@ -326,13 +378,16 @@ EMPTY_RECIPE_DICT: Final[PythonConfigRecipe_Dict] = {
 EMPTY_RECIPE: Final[PythonConfigRecipe] = PythonConfigRecipe.from_dict(EMPTY_RECIPE_DICT)
 
 
+# CVManager's post_setup method is called with this. It indicates the circumstances under which a manager was "created".
+# We prefer a single post_setup method rather than separate methods for various reasons.
+# See Notes.txt for more details.
 class CreateManagerEnum(IntEnum):
-    no_create = 0
-    create_config = 1
-    destroy_config = 2
-    add_manager = 3
-    copy_config = 4
+    no_create = 0  # Normal operation (deserialization, essentially)
+    create_config = 1  # called once upon creation in db.
+    destroy_config = 2  # called once upon removal from db. Used for cleanup.
+    add_manager = 3  # adding manager to existing config
+    copy_config = 4  # copying a config to create a new char version.
 
 
-# Default argument for create.
+# Default argument for the above.
 NO_CREATE: Final[CreateManagerEnum] = CreateManagerEnum['no_create']
