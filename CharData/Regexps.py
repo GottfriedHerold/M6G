@@ -25,3 +25,11 @@ re_argname: Final = re.compile(r"[$][a-z_]+")
 re_special_arg: Final = re.compile(r"[$][A-Z][a-zA-Z_]*")
 re_funcname: Final = re.compile(r"[A-Z]+")
 re_funcname_lowercased: Final = re.compile(r"[a-z]+")
+
+def valid_key(key: str) -> bool:
+    match = re_key_any.fullmatch(key)
+    assert match
+    split_key = key.split(".")
+
+
+    return True

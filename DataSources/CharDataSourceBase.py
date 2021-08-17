@@ -21,7 +21,7 @@ class CharDataSourceBase:
     """
 
     # These two are not necessarily enforced by the setters or the underlying container(s); violating the restrictions
-    # this will make lookup fail to find things in unspecified ways.
+    # will make lookup fail to find things in unspecified ways.
     contains_restricted: bool = True  # Data source may contain restricted keys.
     contains_unrestricted: bool = True  # Data source may contain unrestricted keys.
     # description and dict_type are string that describe the data source.

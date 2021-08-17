@@ -1,5 +1,5 @@
 """
-TODO: Redo lookup specification!!!
+TODO: Redo lookup specification!!! THIS IS OUTDATED
 This module defines a class that is used to hold and access a (version of a) character's data.
 Note that characters are supposed to be versioned in a simple (non-branching) fashion.
 The main data that is used to hold the character is a list S = [S0,S1,S2,...] of dict-like data source objects.
@@ -43,6 +43,14 @@ _Ret_Type = TypeVar("_Ret_Type")
 _Arg_Type = TypeVar("_Arg_Type")
 
 _ALL_SUFFIX: Final = "_all"
+
+# Expressions to denote wildcards in lookup keys for the CEL.
+# NOTE: _all can match 0 times. We do not allow mulitple occurences of _all in a single key.
+# This is prevented upon creating such entries. Querying "_all" and "_any" explicitly is possible and will lead to looking
+# findind the same entry multiple times.  Queries with multiple occurences of "_any" are possible as well. They will only
+# match via wildcard expansion.
+_WILDCARD_ONE: Final = "_any"  # corresponds to "?" (match single)
+_WILDCARD_ANY: Final = "_all"  # corresponds to "*" (match arbitrary number of sub-keys)
 
 
 # TODO: Derive from Other Exception(s):
@@ -155,7 +163,7 @@ class BaseCharVersion:
             else:
                 self._config = config
                 config.associate_char_version(char_version=self)
-                self.config.setup_managers()
+                self.config.setup_managers()  # TODO: Needs changes due to modifications of manager management
             # self._data_sources is set from self._updated_config()
         else:
             # TODO: Might go away completely.
@@ -173,7 +181,7 @@ class BaseCharVersion:
         # TODO: if direct data source interface goes away, may simplify and remove if self._config
         if self._config:
             edit_mode = self.config.edit_mode
-            if not not edit_mode.may_edit_data():
+            if not edit_mode.may_edit_data():  # TODO: WAS NOT NOT. Sure?
                 if data_write_permission:
                     raise ValueError("Explicitly set data_write_permissions incompatible with edit_mode")
                 self.data_write_permission = False

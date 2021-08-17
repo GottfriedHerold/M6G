@@ -23,7 +23,7 @@
 
 # TODO: Some key features are still missing here, notably:
 # - $DIR() like functionalities that allow querying what key are present in the database.
-#   This is not really a feature of the browser but rather of data sources, as such information should
+#   This is not really a feature of the language but rather of data sources, as such information should
 #   be exposed via (read-only, for the user) __dir__ - like-entries in the database.
 # - optional arguments to GET that allows GET("a.b", with={a.c="xyy"}) queries to get the key a.b and evaluate it as-if
 #   the entry under a.c was "xyz". Might require turning GET into a core-constant to have variable argument number
