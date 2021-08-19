@@ -34,6 +34,7 @@ from . import Parser
 from . import CharExceptions
 from . import ListBuffer
 from CharVersionConfig import CVConfig, PythonConfigRecipe
+from DBInterface.models.meta import KEY_MAX_LENGTH
 
 if TYPE_CHECKING:
     from DataSources import CharDataSourceBase
@@ -45,10 +46,10 @@ _Arg_Type = TypeVar("_Arg_Type")
 _ALL_SUFFIX: Final = "_all"
 
 # Expressions to denote wildcards in lookup keys for the CEL.
-# NOTE: _all can match 0 times. We do not allow mulitple occurences of _all in a single key.
-# This is prevented upon creating such entries. Querying "_all" and "_any" explicitly is possible and will lead to looking
-# findind the same entry multiple times.  Queries with multiple occurences of "_any" are possible as well. They will only
-# match via wildcard expansion.
+# NOTE: _all can match 0 times. We do not allow multiple occurrences of _all in a single key.
+# This is prevented upon creating such entries. Querying "_all" and "_any" explicitly is possible and can lead to lookup
+# finding the same entry multiple times. Queries with multiple explicit occurrences of "_any" are possible in principle.
+# Of course, they will only match via wildcard expansion.
 _WILDCARD_ONE: Final = "_any"  # corresponds to "?" (match single)
 _WILDCARD_ANY: Final = "_all"  # corresponds to "*" (match arbitrary number of sub-keys)
 
@@ -67,6 +68,47 @@ class NoWritePermissionError(CharPermissionError):
 # This may be raised from __init__ in a subclass. Included here for consistency.
 class NoReadPermissionError(CharPermissionError):
     pass
+
+
+class InvalidKeyError(Exception):
+    pass
+
+def valid_key(key: str) -> bool:
+    """
+    valid_key checks whether a supposed key (to out database defining properties of chars) satisfies some additional
+    validity constraints. Note that we suppose that key matches re_key_any. This checks for further constraints that
+    come from limitations of the language or the database.
+    """
+    match = Regexps.re_key_any.fullmatch(key)
+    assert match
+    if len(key) > KEY_MAX_LENGTH:
+        return False
+    split_key = key.split(".")
+    wildcards = 0
+    for part in split_key:
+        if part == _WILDCARD_ANY:
+            wildcards += 1
+    return wildcards <= 1
+
+
+def invert_key_at_wildcard(key: str) -> List[str]:
+    """
+    TODO:
+    """
+    assert Regexps.re_key_any.fullmatch(key)
+    if len(key) > KEY_MAX_LENGTH:
+        raise InvalidKeyError
+    split_key = key.split(".")
+    wildcard_pos = -1
+    for i in range(len(split_key)):
+        if split_key[i] == _WILDCARD_ANY:
+            if wildcard_pos >= 0:
+                raise InvalidKeyError
+            wildcard_pos = i
+    if wildcard_pos == -1:
+        return []
+    split_key[wildcard_pos:].reverse()
+    return split_key
 
 
 class BaseCharVersion:

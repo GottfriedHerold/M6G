@@ -43,7 +43,8 @@ import ply.lex as lex
 import ply.yacc as yacc
 # ply.lex.TOKEN is a decorator to associate regexps with tokenizer rules.
 # The "normal" way is to set a docstring to the regexp, which (apart from all the qualms I have about giving
-# docstrings semantics) does not work if the regexp is an import such as re_key_any.
+# docstrings semantics) does not work if, e.g. the regexp is an import such as re_key_any.
+# ply.lex.TOKEN avoids this limitation
 from ply.lex import TOKEN
 
 from .Regexps import re_key_any, re_number_float, re_number_int, re_argname, re_funcname, re_special_arg
